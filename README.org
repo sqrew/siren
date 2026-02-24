@@ -1,0 +1,81 @@
+#+TITLE: Siren
+#+DATE: <2026-02-24 Mon>
+
+*A small, portable audio engine for Carp.*
+
+Make music in two lines. Run it anywhere.
+
+#+BEGIN_SRC carp
+(load "siren.carp")
+
+(defn main []
+  (let-do [ch  (pluck-square 0.4f)
+           seq (Seq.make [(note note-c4 200)
+                          (note note-e4 200)
+                          (note note-g4 400)])]
+    (Siren.init)
+    (Siren.run &ch &seq)))
+#+END_SRC
+
+* What It Is
+
+Siren is a chiptune-capable audio engine written in [[https://github.com/carp-lang/Carp][Carp]]. It compiles to C
+and depends only on SDL2. If your target has a C compiler and SDL2, Siren runs
+on it — no runtime, no garbage collector, no proprietary dependencies, no
+license fees.
+
+This makes it arguably the most universally portable way to add music to a
+program that currently exists. Desktop, embedded, Raspberry Pi, handheld
+hardware, art installations — if SDL2 runs there, so does Siren.
+
+* Why It Exists
+
+Most audio engines are either:
+- *Massive frameworks* (FMOD, Wwise) — proprietary, expensive, overkill
+- *Runtime-dependent* (Python, JS) — not truly embeddable
+- *Engine-locked* (Unity, Godot audio) — useless outside their host
+
+Siren is none of those. It's a library. You own it completely.
+
+It was built as part of an ongoing effort to make Carp viable as a general
+purpose systems language — proving that a compiled Lisp with no GC can power
+real audio DSP cleanly and ergonomically.
+
+* The Pipeline
+
+#+BEGIN_SRC
+Sequencer → Oscillator → Envelope → [Filters] → [Effects] → Mixer → SDL2 → PCM out
+#+END_SRC
+
+Every stage is a pure transform on f32 arrays. Data flows one direction.
+Ownership is linear. Nothing is shared between stages.
+
+* What You Get
+
+- *5 oscillators* — sine, square, saw, triangle, noise
+- *ADSR envelopes* — full state machine, retrigger-safe
+- *Step sequencer* — note arrays with rests, loops continuously
+- *Preset instruments* — ~(pluck-square 0.4f)~, ~(pad-sine 0.3f)~, ~(bass-saw 0.5f)~
+- *88 named notes* — ~note-c4~ through ~note-b7~, all piano keys
+- *One-line startup* — ~Siren.run~ owns the engine loop
+
+Coming: filters (biquad LP/HP/BP), effects (delay, reverb, chorus),
+LFO, multi-channel mixer.
+
+* Dependencies
+
+- [[https://github.com/carp-lang/Carp][Carp]] — the compiler
+- [[https://www.libsdl.org/][SDL2]] — audio output only
+
+Future: ~miniaudio~ backend to eliminate the SDL2 dependency entirely,
+making Siren truly zero-dependency.
+
+* Status
+
+Early but functional. Real music plays. The architecture is proven.
+Not production-hardened — this is a research project and a love letter
+to a language that deserves more users.
+
+* Built With
+
+sqrew + Claude (claude-sonnet-4-6) — southern Maine, 2026.
