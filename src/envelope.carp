@@ -1,0 +1,99 @@
+; envelope.carp — ADSR amplitude envelope
+; apply with (Env.fill buf &env) after oscillator fill
+; note-on!/note-off! drive the state machine
+
+; stage constants — sumtype copy not auto-derived, use Int
+(def env-attack  0)
+(def env-decay   1)
+(def env-sustain 2)
+(def env-release 3)
+(def env-done    4)
+
+(deftype Env
+  [attack-samps  Int    ; samples for attack
+   decay-samps   Int    ; samples for decay
+   sustain-level Float  ; sustain amplitude 0..1
+   release-samps Int    ; samples for release
+   stage         Int    ; current stage (env-attack..env-done)
+   pos           Int    ; samples into current stage
+   level         Float  ; current amplitude
+   release-from  Float]) ; amplitude at moment of note-off
+
+(defmodule Env
+
+  (defn ms-to-samps [ms]
+    (Float.to-int (* (Float.from-int ms)
+                     (/ (Float.from-int sample-rate) 1000.0f))))
+
+  (defn make [attack-ms decay-ms sustain release-ms]
+    (Env.init (ms-to-samps attack-ms)
+              (ms-to-samps decay-ms)
+              sustain
+              (ms-to-samps release-ms)
+              env-done   ; start silent
+              0
+              0.0f
+              0.0f))
+
+  (defn note-on! [env]
+    (do
+      (Env.set-stage! env env-attack)
+      (Env.set-pos!   env 0)
+      (Env.set-level! env 0.0f)))
+
+  (defn note-off! [env]
+    (do
+      (Env.set-release-from! env @(Env.level env))
+      (Env.set-stage!        env env-release)
+      (Env.set-pos!          env 0)))
+
+  ; advance envelope by one sample, return current amplitude
+  (defn tick [env]
+    (let [stage @(Env.stage env)
+          pos   @(Env.pos env)]
+      (if (= stage env-attack)
+        (let-do [n @(Env.attack-samps env)
+                 lvl (if (= n 0) 1.0f
+                       (/ (Float.from-int pos) (Float.from-int n)))]
+          (Env.set-level! env lvl)
+          (Env.set-pos!   env (+ pos 1))
+          (when (>= (+ pos 1) n)
+            (do (Env.set-stage! env env-decay)
+                (Env.set-pos!   env 0)))
+          lvl)
+      (if (= stage env-decay)
+        (let-do [n   @(Env.decay-samps env)
+                 sus @(Env.sustain-level env)
+                 t   (if (= n 0) 1.0f
+                       (/ (Float.from-int pos) (Float.from-int n)))
+                 lvl (+ sus (* (- 1.0f sus) (- 1.0f t)))]
+          (Env.set-level! env lvl)
+          (Env.set-pos!   env (+ pos 1))
+          (when (>= (+ pos 1) n)
+            (do (Env.set-stage! env env-sustain)
+                (Env.set-pos!   env 0)))
+          lvl)
+      (if (= stage env-sustain)
+        (let [lvl @(Env.sustain-level env)]
+          (do (Env.set-level! env lvl)
+              lvl))
+      (if (= stage env-release)
+        (let-do [n   @(Env.release-samps env)
+                 t   (if (= n 0) 1.0f
+                       (/ (Float.from-int pos) (Float.from-int n)))
+                 lvl (* @(Env.release-from env) (- 1.0f t))]
+          (Env.set-level! env lvl)
+          (Env.set-pos!   env (+ pos 1))
+          (when (>= (+ pos 1) n)
+            (do (Env.set-stage! env env-done)
+                (Env.set-level! env 0.0f)))
+          lvl)
+      ; env-done
+      0.0f))))))
+
+  ; apply envelope in-place to a mono buffer
+  (defn fill [buf env]
+    (for [i 0 buf-frames]
+      (aset! buf i (* @(Array.unsafe-nth buf i) (tick env)))))
+
+)

@@ -2,13 +2,13 @@
 (load "constants.carp")
 (load "SDLAudio.carp")
 (load "oscillators.carp")
+(load "envelope.carp")
 (use SDLAudio)
 
 ; siren — embedded audio engine
 ; signal generation → modulation → processing → mixing → pcm out
 
-; interleave a mono buffer into a stereo output buffer
-; gain: 0.0..1.0
+; interleave mono buffer into stereo output with gain
 (defn mono-to-stereo [mono stereo gain]
   (for [i 0 buf-frames]
     (let [s (* @(Array.unsafe-nth mono i) gain)]
@@ -22,14 +22,26 @@
     (let-do [dev    (SDLAudio.open sample-rate channels buf-frames)
              mono   (Array.allocate buf-frames)
              stereo (Array.allocate buf-size)
-             phase  0.0f]
+             phase  0.0f
+             ; plucky: 5ms attack, 80ms decay, 0.0 sustain, 200ms release
+             env    (Env.make 5 80 0.0f 200)
+             ; retrigger every N buffers
+             tick-count  0
+             retrig-every 80]   ; ~80 buffers * 512 samples / 44100 ≈ 0.93s
+      (Env.note-on! &env)
       (SDLAudio.play dev)
-      (println* "siren: square 220hz. ctrl-c to stop.")
+      (println* "siren: plucky square. ctrl-c to stop.")
       (while true
         (do
           (while (< (SDLAudio.queued-bytes dev) queue-target)
             (do
               (set! phase (Osc.fill-square &mono 220 phase))
-              (mono-to-stereo &mono &stereo 0.3f)
-              (ignore (SDLAudio.queue dev (Array.unsafe-raw &stereo) buf-size))))
+              (Env.fill &mono &env)
+              (mono-to-stereo &mono &stereo 0.5f)
+              (ignore (SDLAudio.queue dev (Array.unsafe-raw &stereo) buf-size))
+              (set! tick-count (+ tick-count 1))
+              (when (= tick-count retrig-every)
+                (do
+                  (Env.note-on! &env)
+                  (set! tick-count 0)))))
           (SDL.delay 1))))))
