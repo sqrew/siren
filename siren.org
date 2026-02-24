@@ -1,0 +1,70 @@
+#+TITLE: Siren — Embedded Audio Engine in Carp
+#+DATE: <2026-02-24 Mon>
+#+DESCRIPTION: Dense, no-fluff DSP engine. Signal generation through output. Chiptune-capable.
+
+* Vision
+
+Full audio pipeline in Carp. No codecs. No presets. No boilerplate.
+Signal generation → modulation → processing → mixing → PCM output.
+Single-threaded. Chiptune-capable from the start.
+
+Dense, fuck-you Carp. The largest Carp program. A controlled experiment
+in what the language can actually do at non-trivial scale in its sweet spot.
+
+Every pain point becomes a gotcha, a stdlib PR, or a design discussion with Erik.
+
+* Architecture
+
+#+BEGIN_SRC
+oscillators ──┐
+              ├──→ modulation ──→ filters ──→ mixer ──→ SDL_audio → PCM out
+envelopes  ──┘
+#+END_SRC
+
+All stages: pure transforms on float arrays. Linear ownership. No shared
+mutable state between stages. Data flows one direction.
+
+* Modules
+
+** Signal Generation (src/oscillators.carp)
+- [ ] sine, square, saw, triangle, noise
+- [ ] wavetable lookup
+- [ ] frequency/phase math
+
+** Modulation (src/modulation.carp)
+- [ ] LFOs (oscillators at control rate)
+- [ ] ADSR envelopes
+- [ ] modulation routing (signal modulating another's parameter)
+
+** Processing (src/filters.carp)
+- [ ] biquad filter — low-pass, high-pass, band-pass
+- [ ] distortion/waveshaping
+- [ ] delay line
+
+** Mixing (src/mixer.carp)
+- [ ] per-channel gain/pan
+- [ ] stereo sum
+- [ ] send/return
+
+** Output (src/output.carp)
+- [ ] SDL_audio callback
+- [ ] PCM buffer fill
+- [ ] sample rate / buffer size constants
+
+** Core (src/main.carp)
+- [ ] engine init/teardown
+- [ ] top-level pipeline wiring
+
+* Constants
+- Sample rate: 44100
+- Buffer size: 512 (chiptune-appropriate, low latency)
+- Channels: 2 (stereo)
+- Format: f32 internally, convert at output boundary
+
+* Pain Points Log
+/Document Carp friction as it surfaces. Each entry is a potential stdlib PR or gotcha./
+
+* Notes
+- SDL_audio bindings needed — on Carp contributions roadmap
+- Run with: CARP_DIR=/home/sqrew/Desktop/Carp-fork carp -b src/main.carp
+- Repo: ~/Desktop/siren

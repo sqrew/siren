@@ -1,0 +1,7 @@
+(load-and-use SDL)
+
+; siren — embedded audio engine
+; signal generation → modulation → processing → mixing → pcm out
+
+(defn main []
+  (println* "siren"))
