@@ -1,0 +1,51 @@
+; notes.carp — named note frequency constants (integer hz, rounded)
+; covers all 88 piano keys: A0 (28hz) through C8 (4186hz)
+; sharps use 's' suffix: note-cs4 = C#4, note-fs4 = F#4, etc.
+
+; octave 0
+(def note-a0  28)  (def note-as0 29)  (def note-b0  31)
+
+; octave 1
+(def note-c1  33)  (def note-cs1 35)  (def note-d1  37)
+(def note-ds1 39)  (def note-e1  41)  (def note-f1  44)
+(def note-fs1 46)  (def note-g1  49)  (def note-gs1 52)
+(def note-a1  55)  (def note-as1 58)  (def note-b1  62)
+
+; octave 2
+(def note-c2  65)  (def note-cs2 69)  (def note-d2  73)
+(def note-ds2 78)  (def note-e2  82)  (def note-f2  87)
+(def note-fs2 93)  (def note-g2  98)  (def note-gs2 104)
+(def note-a2  110) (def note-as2 117) (def note-b2  123)
+
+; octave 3
+(def note-c3  131) (def note-cs3 139) (def note-d3  147)
+(def note-ds3 156) (def note-e3  165) (def note-f3  175)
+(def note-fs3 185) (def note-g3  196) (def note-gs3 208)
+(def note-a3  220) (def note-as3 233) (def note-b3  247)
+
+; octave 4 — middle octave, A4=440
+(def note-c4  262) (def note-cs4 277) (def note-d4  294)
+(def note-ds4 311) (def note-e4  330) (def note-f4  349)
+(def note-fs4 370) (def note-g4  392) (def note-gs4 415)
+(def note-a4  440) (def note-as4 466) (def note-b4  494)
+
+; octave 5
+(def note-c5  523) (def note-cs5 554) (def note-d5  587)
+(def note-ds5 622) (def note-e5  659) (def note-f5  698)
+(def note-fs5 740) (def note-g5  784) (def note-gs5 831)
+(def note-a5  880) (def note-as5 932) (def note-b5  988)
+
+; octave 6
+(def note-c6  1047) (def note-cs6 1109) (def note-d6  1175)
+(def note-ds6 1245) (def note-e6  1319) (def note-f6  1397)
+(def note-fs6 1480) (def note-g6  1568) (def note-gs6 1661)
+(def note-a6  1760) (def note-as6 1865) (def note-b6  1976)
+
+; octave 7
+(def note-c7  2093) (def note-cs7 2217) (def note-d7  2349)
+(def note-ds7 2489) (def note-e7  2637) (def note-f7  2794)
+(def note-fs7 2960) (def note-g7  3136) (def note-gs7 3322)
+(def note-a7  3520) (def note-as7 3729) (def note-b7  3951)
+
+; octave 8
+(def note-c8  4186)

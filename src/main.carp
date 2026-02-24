@@ -1,5 +1,6 @@
 (load-and-use SDL)
 (load "constants.carp")
+(load "notes.carp")
 (load "SDLAudio.carp")
 (load "oscillators.carp")
 (load "envelope.carp")
@@ -20,21 +21,21 @@
 
 ; c minor pentatonic melody
 (defn make-melody []
-  [(Note.make 262 120)
-   (Note.make 311 120)
-   (Note.make 349 120)
-   (Note.make 392 240)
+  [(Note.make note-c4  120)
+   (Note.make note-ds4 120)
+   (Note.make note-f4  120)
+   (Note.make note-g4  240)
    (Note.rest 60)
-   (Note.make 392 120)
-   (Note.make 466 120)
-   (Note.make 523 240)
+   (Note.make note-g4  120)
+   (Note.make note-as4 120)
+   (Note.make note-c5  240)
    (Note.rest 120)
-   (Note.make 466 120)
-   (Note.make 392 120)
-   (Note.make 349 240)
+   (Note.make note-as4 120)
+   (Note.make note-g4  120)
+   (Note.make note-f4  240)
    (Note.rest 60)
-   (Note.make 311 120)
-   (Note.make 262 480)])
+   (Note.make note-ds4 120)
+   (Note.make note-c4  480)])
 
 (defn main []
   (do
