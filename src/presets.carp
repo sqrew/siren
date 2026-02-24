@@ -1,0 +1,49 @@
+; presets.carp — instrument presets and ergonomic macros
+; for tinkerers who just want to make sound without configuring a synth
+;
+; usage:
+;   (def my-seq (Seq.make (defsong (pluck note-c4 250) (pluck note-g4 250))))
+;   (def my-ch  (preset pluck-square 0.4f))
+
+; --- channel presets ---
+; (preset-pluck waveform gain) — fast attack, short decay, percussive
+(defmacro preset-pluck [waveform gain]
+  (list 'Channel.make waveform 5 60 0.0f 80 gain))
+
+; (preset-pad waveform gain) — slow attack, high sustain, airy
+(defmacro preset-pad [waveform gain]
+  (list 'Channel.make waveform 200 100 0.7f 400 gain))
+
+; (preset-bass waveform gain) — punchy, short, low sustain
+(defmacro preset-bass [waveform gain]
+  (list 'Channel.make waveform 3 40 0.0f 60 gain))
+
+; (preset-lead waveform gain) — medium attack, full sustain, singing
+(defmacro preset-lead [waveform gain]
+  (list 'Channel.make waveform 20 80 0.8f 150 gain))
+
+; (preset-perc waveform gain) — instant attack, very short decay, drum-like
+(defmacro preset-perc [waveform gain]
+  (list 'Channel.make waveform 1 30 0.0f 20 gain))
+
+; --- named presets (waveform baked in) ---
+(defmacro pluck-square [gain] (list 'preset-pluck 'osc-square gain))
+(defmacro pluck-saw    [gain] (list 'preset-pluck 'osc-saw    gain))
+(defmacro pad-sine     [gain] (list 'preset-pad   'osc-sine   gain))
+(defmacro pad-triangle [gain] (list 'preset-pad   'osc-triangle gain))
+(defmacro bass-saw     [gain] (list 'preset-bass  'osc-saw    gain))
+(defmacro bass-square  [gain] (list 'preset-bass  'osc-square gain))
+(defmacro lead-square  [gain] (list 'preset-lead  'osc-square gain))
+(defmacro lead-triangle [gain] (list 'preset-lead 'osc-triangle gain))
+(defmacro perc-noise   [gain] (list 'preset-perc  'osc-noise  gain))
+(defmacro perc-square  [gain] (list 'preset-perc  'osc-square gain))
+
+; --- note macro ---
+; (note freq dur-ms) — sugar over Note.make
+(defmacro note [freq dur] (list 'Note.make freq dur))
+
+; --- defsong macro ---
+; (defsong (note-c4 250) (note-g4 250) ...) — builds a Note array
+; each element is (freq dur-ms), rest is (rest dur-ms)
+(defmacro defsong [:rest steps]
+  (list 'the (list 'Array 'Note) (cons 'array steps)))

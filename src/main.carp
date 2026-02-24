@@ -6,6 +6,7 @@
 (load "envelope.carp")
 (load "channel.carp")
 (load "sequencer.carp")
+(load "presets.carp")
 (use SDLAudio)
 
 ; siren — embedded audio engine
@@ -21,21 +22,21 @@
 
 ; c minor pentatonic melody
 (defn make-melody []
-  [(Note.make note-c4  120)
-   (Note.make note-ds4 120)
-   (Note.make note-f4  120)
-   (Note.make note-g4  240)
+  [(note note-c4  120)
+   (note note-ds4 120)
+   (note note-f4  120)
+   (note note-g4  240)
    (Note.rest 60)
-   (Note.make note-g4  120)
-   (Note.make note-as4 120)
-   (Note.make note-c5  240)
+   (note note-g4  120)
+   (note note-as4 120)
+   (note note-c5  240)
    (Note.rest 120)
-   (Note.make note-as4 120)
-   (Note.make note-g4  120)
-   (Note.make note-f4  240)
+   (note note-as4 120)
+   (note note-g4  120)
+   (note note-f4  240)
    (Note.rest 60)
-   (Note.make note-ds4 120)
-   (Note.make note-c4  480)])
+   (note note-ds4 120)
+   (note note-c4  480)])
 
 (defn main []
   (do
@@ -43,7 +44,7 @@
     (let-do [dev    (SDLAudio.open sample-rate channels buf-frames)
              stereo (Array.allocate buf-size)
              ; define the instrument once
-             ch     (Channel.make osc-square 5 60 0.0f 80 0.4f)
+             ch     (pluck-square 0.4f)
              seq    (Seq.make (make-melody))]
       (SDLAudio.play dev)
       (println* "siren: running.")
