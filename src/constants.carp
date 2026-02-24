@@ -1,0 +1,10 @@
+; constants.carp — global engine constants
+; loaded first, available to all modules
+
+(def sample-rate  44100)
+(def channels     2)
+(def buf-frames   512)
+(def buf-size     (* buf-frames channels))  ; floats per stereo buffer
+(def buf-bytes    (* buf-size 4))           ; bytes per buffer (f32 = 4 bytes)
+(def queue-target (* buf-bytes 4))          ; keep 4 buffers queued ahead
+(def two-pi       (* 2.0f Float.pi))

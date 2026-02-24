@@ -1,0 +1,48 @@
+; oscillators.carp — signal generation
+; all oscillators produce MONO f32 buffers
+; uniform API: (Osc.fill-X buf freq phase) → next-phase
+; buf is (Ref (Array Float)), length = buf-frames
+
+(defmodule Osc
+
+  ; sine — classic, band-limited by nature
+  (defn fill-sine [buf freq phase]
+    (let-do [step (* two-pi (/ (Float.from-int freq) (Float.from-int sample-rate)))]
+      (for [i 0 buf-frames]
+        (aset! buf i (Float.sin (+ phase (* step (Float.from-int i))))))
+      (mod (+ phase (* step (Float.from-int buf-frames))) two-pi)))
+
+  ; square — naive, aliased. good for chiptune
+  (defn fill-square [buf freq phase]
+    (let-do [step (* two-pi (/ (Float.from-int freq) (Float.from-int sample-rate)))]
+      (for [i 0 buf-frames]
+        (let [p (mod (+ phase (* step (Float.from-int i))) two-pi)]
+          (aset! buf i (if (< p Float.pi) 1.0f -1.0f))))
+      (mod (+ phase (* step (Float.from-int buf-frames))) two-pi)))
+
+  ; saw — naive, aliased. good for chiptune
+  (defn fill-saw [buf freq phase]
+    (let-do [step (* two-pi (/ (Float.from-int freq) (Float.from-int sample-rate)))]
+      (for [i 0 buf-frames]
+        (let [p (mod (+ phase (* step (Float.from-int i))) two-pi)]
+          (aset! buf i (- (* (/ p Float.pi) 1.0f) 1.0f))))
+      (mod (+ phase (* step (Float.from-int buf-frames))) two-pi)))
+
+  ; triangle — derived from saw, band-limited-ish
+  (defn fill-triangle [buf freq phase]
+    (let-do [step (* two-pi (/ (Float.from-int freq) (Float.from-int sample-rate)))]
+      (for [i 0 buf-frames]
+        (let [p  (mod (+ phase (* step (Float.from-int i))) two-pi)
+              s  (/ p Float.pi)          ; 0..2
+              s2 (if (< s 1.0f) s (- 2.0f s))]  ; fold: 0→1→0
+          (aset! buf i (- (* s2 2.0f) 1.0f))))   ; scale to -1..1
+      (mod (+ phase (* step (Float.from-int buf-frames))) two-pi)))
+
+  ; white noise — phase is unused, kept for API consistency
+  (defn fill-noise [buf freq phase]
+    (do
+      (for [i 0 buf-frames]
+        (aset! buf i (- (* (Float.from-int (mod (random) 65536)) 0.0000305185f) 1.0f)))
+      phase))
+
+)

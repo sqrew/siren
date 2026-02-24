@@ -1,41 +1,35 @@
 (load-and-use SDL)
+(load "constants.carp")
 (load "SDLAudio.carp")
+(load "oscillators.carp")
 (use SDLAudio)
 
 ; siren — embedded audio engine
 ; signal generation → modulation → processing → mixing → pcm out
 
-(def sample-rate  44100)
-(def channels     2)
-(def buf-frames   512)
-(def buf-size     (* buf-frames channels))  ; floats per buffer
-(def buf-bytes    (* buf-size 4))           ; bytes per buffer (f32 = 4 bytes)
-(def queue-target (* buf-bytes 4))          ; keep 4 buffers queued ahead
-(def two-pi       (* 2.0f Float.pi))
-
-; fill buf with a stereo sine wave at freq hz, starting at phase
-; returns next phase
-(defn fill-sine [buf freq phase]
-  (let-do [step (* two-pi (/ (Float.from-int freq) (Float.from-int sample-rate)))]
-    (for [i 0 buf-frames]
-      (let [s (Float.sin (+ phase (* step (Float.from-int i))))]
-        (do
-          (aset! buf (* i 2)       s)
-          (aset! buf (+ (* i 2) 1) s))))
-    (mod (+ phase (* step (Float.from-int buf-frames))) two-pi)))
+; interleave a mono buffer into a stereo output buffer
+; gain: 0.0..1.0
+(defn mono-to-stereo [mono stereo gain]
+  (for [i 0 buf-frames]
+    (let [s (* @(Array.unsafe-nth mono i) gain)]
+      (do
+        (aset! stereo (* i 2)       s)
+        (aset! stereo (+ (* i 2) 1) s)))))
 
 (defn main []
   (do
     (SDL.init SDL.INIT_EVERYTHING)
-    (let-do [dev   (SDLAudio.open sample-rate channels buf-frames)
-             buf   (Array.allocate buf-size)
-             phase 0.0f]
+    (let-do [dev    (SDLAudio.open sample-rate channels buf-frames)
+             mono   (Array.allocate buf-frames)
+             stereo (Array.allocate buf-size)
+             phase  0.0f]
       (SDLAudio.play dev)
-      (println* "siren: playing 440hz sine. ctrl-c to stop.")
+      (println* "siren: square 220hz. ctrl-c to stop.")
       (while true
         (do
           (while (< (SDLAudio.queued-bytes dev) queue-target)
             (do
-              (set! phase (fill-sine &buf 440 phase))
-              (ignore (SDLAudio.queue dev (Array.unsafe-raw &buf) buf-size))))
+              (set! phase (Osc.fill-square &mono 220 phase))
+              (mono-to-stereo &mono &stereo 0.3f)
+              (ignore (SDLAudio.queue dev (Array.unsafe-raw &stereo) buf-size))))
           (SDL.delay 1))))))
