@@ -67,6 +67,17 @@ All stages: pure transforms on float arrays. Linear ownership. Data flows one di
 - [x] inner loop: Seq.tick → Channel.tick → mono-to-stereo → SDL queue
 - [x] CONFIRMED WORKING — melody plays
 
+** DONE Named Notes (src/notes.carp)
+- [x] all 88 piano keys A0-C8 as integer hz constants
+- [x] sharps use 's' suffix (note-cs4, note-fs4, etc.)
+
+** DONE Presets + Ergonomic Macros (src/presets.carp)
+- [x] preset-pluck/pad/bass/lead/perc — ADSR baked in, just waveform + gain
+- [x] named presets: pluck-square, pad-sine, bass-saw, lead-triangle, perc-noise, etc.
+- [x] note macro — sugar over Note.make
+- [x] defsong macro — variadic Note array builder
+- [x] user-facing API: (pluck-square 0.4f), (note note-c4 250)
+
 ** Filters (src/filters.carp)
 - [ ] biquad filter — one implementation, three modes
 - [ ] low-pass (warm/dark)
