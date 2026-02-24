@@ -3,58 +3,55 @@
 (load "SDLAudio.carp")
 (load "oscillators.carp")
 (load "envelope.carp")
+(load "channel.carp")
 (load "sequencer.carp")
 (use SDLAudio)
 
 ; siren — embedded audio engine
 ; signal generation → modulation → processing → mixing → pcm out
 
-; interleave mono buffer into stereo output with gain
-(defn mono-to-stereo [mono stereo gain]
+; interleave a mono buffer into a stereo output buffer
+(defn mono-to-stereo [mono stereo]
   (for [i 0 buf-frames]
-    (let [s (* @(Array.unsafe-nth mono i) gain)]
+    (let [s @(Array.unsafe-nth mono i)]
       (do
         (aset! stereo (* i 2)       s)
         (aset! stereo (+ (* i 2) 1) s)))))
 
-; c minor pentatonic — classic chiptune feel
+; c minor pentatonic melody
 (defn make-melody []
-  [(Note.make 262 120)   ; C4
-   (Note.make 311 120)   ; Eb4
-   (Note.make 349 120)   ; F4
-   (Note.make 392 240)   ; G4
+  [(Note.make 262 120)
+   (Note.make 311 120)
+   (Note.make 349 120)
+   (Note.make 392 240)
    (Note.rest 60)
-   (Note.make 392 120)   ; G4
-   (Note.make 466 120)   ; Bb4
-   (Note.make 523 240)   ; C5
+   (Note.make 392 120)
+   (Note.make 466 120)
+   (Note.make 523 240)
    (Note.rest 120)
-   (Note.make 466 120)   ; Bb4
-   (Note.make 392 120)   ; G4
-   (Note.make 349 240)   ; F4
+   (Note.make 466 120)
+   (Note.make 392 120)
+   (Note.make 349 240)
    (Note.rest 60)
-   (Note.make 311 120)   ; Eb4
-   (Note.make 262 480)]) ; C4
+   (Note.make 311 120)
+   (Note.make 262 480)])
 
 (defn main []
   (do
     (SDL.init SDL.INIT_EVERYTHING)
     (let-do [dev    (SDLAudio.open sample-rate channels buf-frames)
-             mono   (Array.allocate buf-frames)
              stereo (Array.allocate buf-size)
-             phase  0.0f
-             env    (Env.make 5 60 0.0f 80)
+             ; define the instrument once
+             ch     (Channel.make osc-square 5 60 0.0f 80 0.4f)
              seq    (Seq.make (make-melody))]
       (SDLAudio.play dev)
-      (println* "siren: sequencer running. ctrl-c to stop.")
+      (println* "siren: running.")
       (while true
         (do
           (while (< (SDLAudio.queued-bytes dev) queue-target)
-            (let [freq (Seq.tick &seq &env)]
-              (do
-                (if (= freq 0)
-                  (for [i 0 buf-frames] (aset! &mono i 0.0f))
-                  (set! phase (Osc.fill-square &mono freq phase)))
-                (Env.fill &mono &env)
-                (mono-to-stereo &mono &stereo 0.4f)
-                (ignore (SDLAudio.queue dev (Array.unsafe-raw &stereo) buf-size)))))
+            (do
+              (Seq.tick &seq &ch)
+              (Channel.tick &ch)
+              (mono-to-stereo (Channel.buf &ch) &stereo)
+              (ignore (SDLAudio.queue dev (Array.unsafe-raw &stereo) buf-size))))
           (SDL.delay 1))))))

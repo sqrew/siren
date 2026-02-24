@@ -1,0 +1,61 @@
+; channel.carp — a complete voice: oscillator + envelope + future stages
+; define an instrument once with make, trigger it with play!/release!
+; tick fills the internal mono buffer — call once per audio buffer
+
+; waveform constants
+(def osc-sine     0)
+(def osc-square   1)
+(def osc-saw      2)
+(def osc-triangle 3)
+(def osc-noise    4)
+
+(deftype Channel
+  [waveform Int          ; which oscillator to use
+   env      Env          ; amplitude envelope
+   phase    Float        ; oscillator phase state
+   freq     Int          ; current frequency in hz
+   gain     Float        ; output gain 0..1
+   buf      (Array Float)]) ; internal mono buffer
+
+(defmodule Channel
+
+  ; define an instrument — waveform, ADSR shape, output gain
+  (defn make [waveform attack-ms decay-ms sustain release-ms gain]
+    (Channel.init waveform
+                  (Env.make attack-ms decay-ms sustain release-ms)
+                  0.0f
+                  0
+                  gain
+                  (Array.allocate buf-frames)))
+
+  ; trigger a note at the given frequency
+  (defn play! [ch freq]
+    (do
+      (Channel.set-freq! ch freq)
+      (Env.note-on! (Channel.env ch))))
+
+  ; release the current note
+  (defn release! [ch]
+    (Env.note-off! (Channel.env ch)))
+
+  ; fill internal buffer — call every audio buffer regardless of note state
+  (defn tick [ch]
+    (let-do [wf    @(Channel.waveform ch)
+             freq  @(Channel.freq ch)
+             buf   (Channel.buf ch)
+             phase @(Channel.phase ch)]
+      (if (= freq 0)
+        (for [i 0 buf-frames] (aset! buf i 0.0f))
+        (let [next-phase
+              (if (= wf osc-sine)     (Osc.fill-sine     buf freq phase)
+              (if (= wf osc-square)   (Osc.fill-square   buf freq phase)
+              (if (= wf osc-saw)      (Osc.fill-saw      buf freq phase)
+              (if (= wf osc-triangle) (Osc.fill-triangle buf freq phase)
+                                      (Osc.fill-noise    buf freq phase)))))]
+          (Channel.set-phase! ch next-phase)))
+      (Env.fill buf (Channel.env ch))
+      ; apply gain
+      (for [i 0 buf-frames]
+        (aset! buf i (* @(Array.unsafe-nth buf i) @(Channel.gain ch))))))
+
+)

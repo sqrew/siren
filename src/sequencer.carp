@@ -27,33 +27,31 @@
     (let [first-dur (Note.dur-ms (Array.unsafe-nth &notes 0))]
       (Seq.init notes 0 0 (ms-to-samps @first-dur) false)))
 
-  ; advance sequencer by one buffer, fire envelope events as needed
-  ; returns current frequency (0 = rest)
-  (defn tick [seq env]
-    (let-do [note     (Array.unsafe-nth (Seq.notes seq) @(Seq.cursor seq))
-             freq     @(Note.freq note)
-             pos      @(Seq.pos-samps seq)
-             dur      @(Seq.dur-samps seq)
-             active   @(Seq.note-active seq)]
-      ; fire note-on at start of non-rest note
+  ; advance sequencer by one buffer, fire channel events as needed
+  (defn tick [seq ch]
+    (let-do [note   (Array.unsafe-nth (Seq.notes seq) @(Seq.cursor seq))
+             freq   @(Note.freq note)
+             pos    @(Seq.pos-samps seq)
+             dur    @(Seq.dur-samps seq)
+             active @(Seq.note-active seq)]
+      ; fire play! at start of non-rest note
       (when (and (not active) (not (= freq 0)))
         (do
-          (Env.note-on! env)
+          (Channel.play! ch freq)
           (Seq.set-note-active! seq true)))
       ; advance position by one buffer
       (Seq.set-pos-samps! seq (+ pos buf-frames))
       ; advance to next note when duration elapsed
       (when (>= (+ pos buf-frames) dur)
-        (let-do [next (mod (+ @(Seq.cursor seq) 1)
-                           (Array.length (Seq.notes seq)))
+        (let-do [next      (mod (+ @(Seq.cursor seq) 1)
+                                (Array.length (Seq.notes seq)))
                  next-note (Array.unsafe-nth (Seq.notes seq) next)
                  next-dur  (ms-to-samps @(Note.dur-ms next-note))]
-          ; fire note-off when leaving a non-rest note
-          (when active (Env.note-off! env))
+          ; fire release! when leaving a non-rest note
+          (when active (Channel.release! ch))
           (Seq.set-cursor!      seq next)
           (Seq.set-pos-samps!   seq 0)
           (Seq.set-dur-samps!   seq next-dur)
-          (Seq.set-note-active! seq false)))
-      freq))
+          (Seq.set-note-active! seq false)))))
 
 )
