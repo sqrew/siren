@@ -1,9 +1,7 @@
 #+TITLE: Siren
 #+DATE: <2026-02-24 Mon>
 
-*A small, portable audio engine for Carp.*
-
-Make music in two lines. Run it anywhere.
+*If there's a speaker, Siren will play sound.*
 
 #+BEGIN_SRC carp
 (load "siren.carp")
@@ -17,16 +15,20 @@ Make music in two lines. Run it anywhere.
     (Siren.run &ch &seq)))
 #+END_SRC
 
+That's it. Define an instrument, define a melody, play it. Anywhere.
+
 * What It Is
 
-Siren is a chiptune-capable audio engine written in [[https://github.com/carp-lang/Carp][Carp]]. It compiles to C
-and depends only on SDL2. If your target has a C compiler and SDL2, Siren runs
-on it — no runtime, no garbage collector, no proprietary dependencies, no
-license fees.
+Siren is a chiptune audio engine written in [[https://github.com/carp-lang/Carp][Carp]]. It compiles to C and
+depends only on SDL2 — the same library that powers Carp's game ecosystem.
+No runtime. No garbage collector. No proprietary dependencies. No license fees.
 
-This makes it arguably the most universally portable way to add music to a
-program that currently exists. Desktop, embedded, Raspberry Pi, handheld
-hardware, art installations — if SDL2 runs there, so does Siren.
+SDL2 runs on everything worth running on: desktop, Raspberry Pi, embedded ARM,
+handheld hardware, art installations, homebrew game consoles. If someone cared
+enough to hook up a speaker, SDL2 probably already runs there. So does Siren.
+
+This is the point. Not a feature list — just this: *if there's a speaker, Siren
+will play sound.* Minimal code, any hardware, real music.
 
 * Why It Exists
 
@@ -36,6 +38,10 @@ Most audio engines are either:
 - *Engine-locked* (Unity, Godot audio) — useless outside their host
 
 Siren is none of those. It's a library. You own it completely.
+
+It was built as part of an effort to prove that [[https://github.com/carp-lang/Carp][Carp]] — a compiled Lisp with
+no GC and a borrow checker — is a serious general purpose systems language.
+Siren is the proof of concept. It works.
 
 It was built as part of an ongoing effort to make Carp viable as a general
 purpose systems language — proving that a compiled Lisp with no GC can power
@@ -65,10 +71,13 @@ LFO, multi-channel mixer.
 * Dependencies
 
 - [[https://github.com/carp-lang/Carp][Carp]] — the compiler
-- [[https://www.libsdl.org/][SDL2]] — audio output only
+- [[https://www.libsdl.org/][SDL2]] — audio output (already required by Carp game projects)
 
-Future: ~miniaudio~ backend to eliminate the SDL2 dependency entirely,
-making Siren truly zero-dependency.
+SDL2 is the right choice here — it's already the foundation of Carp's game
+ecosystem, so Siren costs nothing extra to include in a Carp game. If Siren
+ever needs to run somewhere truly headless (no display, no input, bare metal
+audio only), the backend can be swapped to [[https://github.com/mackron/miniaudio][miniaudio]] — a single-header C
+library — without touching anything else. The abstraction is already there.
 
 * Status
 
