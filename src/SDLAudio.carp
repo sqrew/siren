@@ -1,0 +1,50 @@
+(system-include "SDL2/SDL.h")
+(relative-include "siren_audio.h")
+
+(defmodule SDLAudio
+
+  (register-type SDL_AudioDeviceID)
+
+  ;; Open default audio device in queue mode.
+  ;; freq: sample rate (44100)
+  ;; channels: 1 mono, 2 stereo
+  ;; samples: buffer size in frames (512)
+  ;; Returns device ID — check with ok?
+  (register open
+            (Fn [Int Int Int] SDL_AudioDeviceID)
+            "siren_open_audio")
+
+  ;; Pause or unpause a device.
+  ;; 1 = pause, 0 = play
+  (register set-paused
+            (Fn [SDL_AudioDeviceID Int] ())
+            "SDL_PauseAudioDevice")
+
+  ;; Queue a float buffer for playback.
+  ;; len is number of floats.
+  (register queue
+            (Fn [SDL_AudioDeviceID (Ptr Float) Int] Int)
+            "siren_queue_audio")
+
+  ;; Bytes currently queued on device.
+  (register queued-bytes
+            (Fn [SDL_AudioDeviceID] Int)
+            "siren_queued_bytes")
+
+  ;; Close a device.
+  (register close
+            (Fn [SDL_AudioDeviceID] ())
+            "SDL_CloseAudioDevice")
+
+  ;; Get SDL error string.
+  (register get-error
+            (Fn [] (Ptr CChar))
+            "SDL_GetError")
+
+  (defn play [device]
+    (set-paused device 0))
+
+  (defn stop [device]
+    (set-paused device 1))
+
+)
