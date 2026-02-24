@@ -1,70 +1,122 @@
 #+TITLE: Siren — Embedded Audio Engine in Carp
 #+DATE: <2026-02-24 Mon>
-#+DESCRIPTION: Dense, no-fluff DSP engine. Signal generation through output. Chiptune-capable.
+#+DESCRIPTION: Dense, no-fluff DSP engine. Complete 2D game audio toolkit.
 
 * Vision
 
-Full audio pipeline in Carp. No codecs. No presets. No boilerplate.
+Complete 2D game audio toolkit in Carp. No codecs. No presets. No boilerplate.
 Signal generation → modulation → processing → mixing → PCM output.
-Single-threaded. Chiptune-capable from the start.
+Single-threaded. Chiptune-capable. Dense, fuck-you Carp.
 
-Dense, fuck-you Carp. The largest Carp program. A controlled experiment
-in what the language can actually do at non-trivial scale in its sweet spot.
+Not tunes. Not 50 algorithms, 150 instruments, 100 drums. Siren is complete
+when you can make a full 2D game's soundkit with it and nothing feels missing.
+Know when to stop building the engine and start using it.
 
 Every pain point becomes a gotcha, a stdlib PR, or a design discussion with Erik.
 
 * Architecture
 
 #+BEGIN_SRC
-oscillators ──┐
-              ├──→ modulation ──→ filters ──→ mixer ──→ SDL_audio → PCM out
-envelopes  ──┘
+sequencer ──→ oscillators ──┐
+                             ├──→ envelope ──→ filters ──→ mixer ──→ SDL_audio → PCM out
+                        lfo ─┘                   ↑
+                                              effects
 #+END_SRC
 
-All stages: pure transforms on float arrays. Linear ownership. No shared
-mutable state between stages. Data flows one direction.
+All stages: pure transforms on float arrays. Linear ownership. Data flows one direction.
 
 * Modules
 
-** Signal Generation (src/oscillators.carp)
-- [ ] sine, square, saw, triangle, noise
-- [ ] wavetable lookup
-- [ ] frequency/phase math
+** DONE Output (src/SDLAudio.carp + src/siren_audio.h)
+- [x] SDL2 raw PCM queue bindings
+- [x] C wrapper header (siren_audio.h) flattens SDL_AudioSpec
+- [x] open, play, stop, queue, queued-bytes, close
+- [ ] SDL_INIT_AUDIO not bound in SDL.carp — using INIT_EVERYTHING for now
 
-** Modulation (src/modulation.carp)
-- [ ] LFOs (oscillators at control rate)
-- [ ] ADSR envelopes
-- [ ] modulation routing (signal modulating another's parameter)
+** DONE Constants (src/constants.carp)
+- [x] sample-rate (44100), channels (2), buf-frames (512)
+- [x] buf-size, buf-bytes, queue-target, two-pi
 
-** Processing (src/filters.carp)
-- [ ] biquad filter — low-pass, high-pass, band-pass
-- [ ] distortion/waveshaping
-- [ ] delay line
+** DONE Signal Generation (src/oscillators.carp)
+- [x] sine, square, saw, triangle, noise
+- [x] all produce MONO f32 buffers
+- [x] uniform API: (Osc.fill-X buf freq phase) → next-phase
 
-** Mixing (src/mixer.carp)
-- [ ] per-channel gain/pan
-- [ ] stereo sum
-- [ ] send/return
+** DONE Envelopes (src/envelope.carp)
+- [x] ADSR deftype with full state machine (attack→decay→sustain→release→done)
+- [x] tick: per-sample amplitude, handles stage transitions mid-buffer
+- [x] fill: applies envelope in-place to mono buffer
+- [x] note-on! / note-off! — release-from tracks level at note-off
+- [x] zero-length segment guards
 
-** Output (src/output.carp)
-- [ ] SDL_audio callback
-- [ ] PCM buffer fill
-- [ ] sample rate / buffer size constants
+** DONE Sequencer (src/sequencer.carp)
+- [x] Note deftype (freq, dur-ms), Note.rest for rests
+- [x] Seq walks note array, fires note-on!/note-off! at correct times
+- [x] loops continuously, monophonic
 
-** Core (src/main.carp)
-- [ ] engine init/teardown
-- [ ] top-level pipeline wiring
+** DONE Core / Pipeline (src/main.carp)
+- [x] mono-to-stereo interleave with gain
+- [x] full pipeline wired: Seq → Osc → Env → mono-to-stereo → SDL queue
+- [x] CONFIRMED WORKING — melody plays
+
+** Filters (src/filters.carp)
+- [ ] biquad filter — one implementation, three modes
+- [ ] low-pass (warm/dark)
+- [ ] high-pass (thin/bright)
+- [ ] band-pass (nasal/resonant)
+- [ ] cutoff + resonance (Q) parameters
+
+** Effects (src/effects.carp)
+- [ ] delay/echo — feedback delay line, delay-ms + feedback parameters
+- [ ] simple reverb — Schroeder comb+allpass network
+- [ ] chorus/flanger — modulated delay line, subtle width/movement
+
+** LFO (src/lfo.carp)
+- [ ] oscillator at control rate (not audio rate)
+- [ ] routable to: pitch, filter cutoff, volume
+- [ ] rate (hz) + depth parameters
+- [ ] waveform: sine or triangle (slow oscillation, no aliasing concern)
+
+** Mixer (src/mixer.carp)
+- [ ] N mono channels (target: 8)
+- [ ] per-channel gain + pan
+- [ ] stereo sum to output buffer
+- [ ] enables polyphony and layering (melody + bass + drums)
+
+** Quality of Life (src/main.carp or src/util.carp)
+- [ ] BPM-synced sequencer (tempo in BPM, note lengths as fractions)
+- [ ] chord/arpeggio helpers
+- [ ] named note frequencies (note-c4, note-g4, etc. — avoid magic numbers)
+
+* Ceiling
+
+This is done when you can build a full 2D game's audio with it:
+- Melody line
+- Bass line
+- Percussion (noise + short envelope)
+- Ambient pad (long attack/release, maybe with chorus)
+- Sound effects (one-shot envelopes on various waveforms)
+
+Positional audio (pan by X, attenuate by distance) deferred — no 3D in Carp yet.
+Revisit when WGPU render pipeline lands and 3D becomes possible.
+
+* Pain Points Log
+/Each entry is a potential stdlib PR or gotcha./
+
+- SDL.init returns () not Int — can't check return value, SDL_INIT_AUDIO not bound
+- Float.pi is a def not defn — no parens, easy to confuse
+- Float.from-int not Int.to-float — naming not obvious
+- All arithmetic strictly binary — (+ a b c) fails, must nest
+- Array.unsafe-raw needed to get Ptr without taking ownership
+- Array.fill! doesn't exist — zero a buffer with a for loop
 
 * Constants
 - Sample rate: 44100
-- Buffer size: 512 (chiptune-appropriate, low latency)
-- Channels: 2 (stereo)
-- Format: f32 internally, convert at output boundary
-
-* Pain Points Log
-/Document Carp friction as it surfaces. Each entry is a potential stdlib PR or gotcha./
+- Buffer size: 512 frames (chiptune-appropriate, low latency)
+- Channels: 2 (stereo output, mono internally until mixer)
+- Format: f32 throughout, interleaved stereo at output boundary
 
 * Notes
-- SDL_audio bindings needed — on Carp contributions roadmap
-- Run with: CARP_DIR=/home/sqrew/Desktop/Carp-fork carp -b src/main.carp
+- Run: CARP_DIR=/home/sqrew/Desktop/Carp-fork carp -b src/main.carp
+- Binary: out/Untitled
 - Repo: ~/Desktop/siren
