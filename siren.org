@@ -135,7 +135,16 @@ Revisit when WGPU render pipeline lands and 3D becomes possible.
 - Channels: 2 (stereo output, mono internally until mixer)
 - Format: f32 throughout, interleaved stereo at output boundary
 
+* Dependency Strategy
+
+SDL2 for now — it's already in every Carp game project, so no extra cost
+when Siren is embedded. If Siren ever needs to be truly standalone (no SDL2
+at all), swap siren_audio.h to call miniaudio instead. One afternoon of work,
+nothing else changes. miniaudio is single-header, MIT, handles ALSA/CoreAudio/
+WASAPI internally — strictly better for audio, just not worth the swap yet.
+
 * Notes
 - Run: CARP_DIR=/home/sqrew/Desktop/Carp-fork carp -b src/main.carp
 - Binary: out/Untitled
 - Repo: ~/Desktop/siren
+- User entry point: (load "siren.carp") — loads everything
