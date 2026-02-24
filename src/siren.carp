@@ -1,0 +1,40 @@
+; siren.carp — single entry point, load this file to get everything
+(load "constants.carp")
+(load "notes.carp")
+(load "SDLAudio.carp")
+(load "oscillators.carp")
+(load "envelope.carp")
+(load "channel.carp")
+(load "sequencer.carp")
+(load "presets.carp")
+
+(defn mono-to-stereo [mono stereo]
+  (for [i 0 buf-frames]
+    (let [s @(Array.unsafe-nth mono i)]
+      (do
+        (aset! stereo (* i 2)       s)
+        (aset! stereo (+ (* i 2) 1) s)))))
+
+(defmodule Siren
+
+  ; initialize audio hardware — call once before run
+  (defn init []
+    (SDL.init SDL.INIT_EVERYTHING))
+
+  ; run the engine loop with a single channel and sequencer
+  ; blocks forever — put this at the end of main
+  (defn run [ch seq]
+    (let-do [dev    (SDLAudio.open sample-rate channels buf-frames)
+             stereo (Array.allocate buf-size)]
+      (SDLAudio.play dev)
+      (while true
+        (do
+          (while (< (SDLAudio.queued-bytes dev) queue-target)
+            (do
+              (Seq.tick seq ch)
+              (Channel.tick ch)
+              (mono-to-stereo (Channel.buf ch) &stereo)
+              (ignore (SDLAudio.queue dev (Array.unsafe-raw &stereo) buf-size))))
+          (SDL.delay 1)))))
+
+)

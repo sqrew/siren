@@ -1,59 +1,23 @@
 (load-and-use SDL)
-(load "constants.carp")
-(load "notes.carp")
-(load "SDLAudio.carp")
-(load "oscillators.carp")
-(load "envelope.carp")
-(load "channel.carp")
-(load "sequencer.carp")
-(load "presets.carp")
+(load "siren.carp")
 (use SDLAudio)
 
-; siren — embedded audio engine
-; signal generation → modulation → processing → mixing → pcm out
-
-; interleave a mono buffer into a stereo output buffer
-(defn mono-to-stereo [mono stereo]
-  (for [i 0 buf-frames]
-    (let [s @(Array.unsafe-nth mono i)]
-      (do
-        (aset! stereo (* i 2)       s)
-        (aset! stereo (+ (* i 2) 1) s)))))
-
-; c minor pentatonic melody
-(defn make-melody []
-  [(note note-c4  120)
-   (note note-ds4 120)
-   (note note-f4  120)
-   (note note-g4  240)
-   (Note.rest 60)
-   (note note-g4  120)
-   (note note-as4 120)
-   (note note-c5  240)
-   (Note.rest 120)
-   (note note-as4 120)
-   (note note-g4  120)
-   (note note-f4  240)
-   (Note.rest 60)
-   (note note-ds4 120)
-   (note note-c4  480)])
-
 (defn main []
-  (do
-    (SDL.init SDL.INIT_EVERYTHING)
-    (let-do [dev    (SDLAudio.open sample-rate channels buf-frames)
-             stereo (Array.allocate buf-size)
-             ; define the instrument once
-             ch     (pluck-square 0.4f)
-             seq    (Seq.make (make-melody))]
-      (SDLAudio.play dev)
-      (println* "siren: running.")
-      (while true
-        (do
-          (while (< (SDLAudio.queued-bytes dev) queue-target)
-            (do
-              (Seq.tick &seq &ch)
-              (Channel.tick &ch)
-              (mono-to-stereo (Channel.buf &ch) &stereo)
-              (ignore (SDLAudio.queue dev (Array.unsafe-raw &stereo) buf-size))))
-          (SDL.delay 1))))))
+  (let-do [ch  (pluck-square 0.4f)
+           seq (Seq.make [(note note-c4  120)
+                          (note note-ds4 120)
+                          (note note-f4  120)
+                          (note note-g4  240)
+                          (Note.rest 60)
+                          (note note-g4  120)
+                          (note note-as4 120)
+                          (note note-c5  240)
+                          (Note.rest 120)
+                          (note note-as4 120)
+                          (note note-g4  120)
+                          (note note-f4  240)
+                          (Note.rest 60)
+                          (note note-ds4 120)
+                          (note note-c4  480)])]
+    (Siren.init)
+    (Siren.run &ch &seq)))
