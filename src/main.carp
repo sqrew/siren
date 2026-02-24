@@ -5,23 +5,24 @@
 ; siren — embedded audio engine
 ; signal generation → modulation → processing → mixing → pcm out
 
-(def sample-rate 44100)
-(def channels    2)
-(def buf-frames  512)
-(def buf-size    (* buf-frames channels))  ; floats per buffer
+(def sample-rate  44100)
+(def channels     2)
+(def buf-frames   512)
+(def buf-size     (* buf-frames channels))  ; floats per buffer
+(def buf-bytes    (* buf-size 4))           ; bytes per buffer (f32 = 4 bytes)
+(def queue-target (* buf-bytes 4))          ; keep 4 buffers queued ahead
+(def two-pi       (* 2.0f Float.pi))
 
 ; fill buf with a stereo sine wave at freq hz, starting at phase
 ; returns next phase
 (defn fill-sine [buf freq phase]
-  (let-do [step (* (* 2.0f Float.pi) (/ (Float.from-int freq)
-                                         (Float.from-int sample-rate)))]
+  (let-do [step (* two-pi (/ (Float.from-int freq) (Float.from-int sample-rate)))]
     (for [i 0 buf-frames]
       (let [s (Float.sin (+ phase (* step (Float.from-int i))))]
         (do
-          (aset! buf (* i 2)       s)   ; left
-          (aset! buf (+ (* i 2) 1) s)))) ; right
-    (mod (+ phase (* step (Float.from-int buf-frames)))
-         (* 2.0f Float.pi))))
+          (aset! buf (* i 2)       s)
+          (aset! buf (+ (* i 2) 1) s))))
+    (mod (+ phase (* step (Float.from-int buf-frames))) two-pi)))
 
 (defn main []
   (do
@@ -33,8 +34,7 @@
       (println* "siren: playing 440hz sine. ctrl-c to stop.")
       (while true
         (do
-          (while (< (SDLAudio.queued-bytes dev)
-                    (* (* buf-size 4) 4))
+          (while (< (SDLAudio.queued-bytes dev) queue-target)
             (do
               (set! phase (fill-sine &buf 440 phase))
               (ignore (SDLAudio.queue dev (Array.unsafe-raw &buf) buf-size))))
