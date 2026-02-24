@@ -51,12 +51,20 @@ All stages: pure transforms on float arrays. Linear ownership. Data flows one di
 
 ** DONE Sequencer (src/sequencer.carp)
 - [x] Note deftype (freq, dur-ms), Note.rest for rests
-- [x] Seq walks note array, fires note-on!/note-off! at correct times
+- [x] Seq walks note array, fires Channel.play!/release! at correct times
 - [x] loops continuously, monophonic
 
+** DONE Channel (src/channel.carp)
+- [x] owns complete voice: waveform, Env, phase, freq, gain, mono buf
+- [x] Channel.make — define instrument once (waveform, ADSR, gain)
+- [x] Channel.play!/release! — trigger note events
+- [x] Channel.tick — full pipeline in one call: osc → envelope → gain
+- [x] waveform dispatch via osc-sine/osc-square/osc-saw/osc-triangle/osc-noise constants
+- [x] adding future stages (filter, LFO, effects) is one line inside tick
+
 ** DONE Core / Pipeline (src/main.carp)
-- [x] mono-to-stereo interleave with gain
-- [x] full pipeline wired: Seq → Osc → Env → mono-to-stereo → SDL queue
+- [x] mono-to-stereo interleave
+- [x] inner loop: Seq.tick → Channel.tick → mono-to-stereo → SDL queue
 - [x] CONFIRMED WORKING — melody plays
 
 ** Filters (src/filters.carp)
