@@ -3,6 +3,7 @@
 (load "SDLAudio.carp")
 (load "oscillators.carp")
 (load "envelope.carp")
+(load "sequencer.carp")
 (use SDLAudio)
 
 ; siren — embedded audio engine
@@ -16,6 +17,24 @@
         (aset! stereo (* i 2)       s)
         (aset! stereo (+ (* i 2) 1) s)))))
 
+; c minor pentatonic — classic chiptune feel
+(defn make-melody []
+  [(Note.make 262 120)   ; C4
+   (Note.make 311 120)   ; Eb4
+   (Note.make 349 120)   ; F4
+   (Note.make 392 240)   ; G4
+   (Note.rest 60)
+   (Note.make 392 120)   ; G4
+   (Note.make 466 120)   ; Bb4
+   (Note.make 523 240)   ; C5
+   (Note.rest 120)
+   (Note.make 466 120)   ; Bb4
+   (Note.make 392 120)   ; G4
+   (Note.make 349 240)   ; F4
+   (Note.rest 60)
+   (Note.make 311 120)   ; Eb4
+   (Note.make 262 480)]) ; C4
+
 (defn main []
   (do
     (SDL.init SDL.INIT_EVERYTHING)
@@ -23,25 +42,19 @@
              mono   (Array.allocate buf-frames)
              stereo (Array.allocate buf-size)
              phase  0.0f
-             ; plucky: 5ms attack, 80ms decay, 0.0 sustain, 200ms release
-             env    (Env.make 5 80 0.0f 200)
-             ; retrigger every N buffers
-             tick-count  0
-             retrig-every 80]   ; ~80 buffers * 512 samples / 44100 ≈ 0.93s
-      (Env.note-on! &env)
+             env    (Env.make 5 60 0.0f 80)
+             seq    (Seq.make (make-melody))]
       (SDLAudio.play dev)
-      (println* "siren: plucky square. ctrl-c to stop.")
+      (println* "siren: sequencer running. ctrl-c to stop.")
       (while true
         (do
           (while (< (SDLAudio.queued-bytes dev) queue-target)
-            (do
-              (set! phase (Osc.fill-square &mono 220 phase))
-              (Env.fill &mono &env)
-              (mono-to-stereo &mono &stereo 0.5f)
-              (ignore (SDLAudio.queue dev (Array.unsafe-raw &stereo) buf-size))
-              (set! tick-count (+ tick-count 1))
-              (when (= tick-count retrig-every)
-                (do
-                  (Env.note-on! &env)
-                  (set! tick-count 0)))))
+            (let [freq (Seq.tick &seq &env)]
+              (do
+                (if (= freq 0)
+                  (for [i 0 buf-frames] (aset! &mono i 0.0f))
+                  (set! phase (Osc.fill-square &mono freq phase)))
+                (Env.fill &mono &env)
+                (mono-to-stereo &mono &stereo 0.4f)
+                (ignore (SDLAudio.queue dev (Array.unsafe-raw &stereo) buf-size)))))
           (SDL.delay 1))))))

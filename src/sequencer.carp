@@ -1,0 +1,59 @@
+; sequencer.carp — simple step sequencer
+; walks an array of Notes, triggers envelope events at the right time
+; one note at a time, monophonic
+
+; a single step: frequency in hz, duration in ms, 0 = rest
+(deftype Note [freq Int dur-ms Int])
+
+(defmodule Note
+  (defn make [freq dur-ms] (Note.init freq dur-ms))
+  (defn rest [dur-ms]      (Note.init 0 dur-ms))
+)
+
+(deftype Seq
+  [notes       (Array Note)  ; the sequence
+   cursor      Int            ; current note index
+   pos-samps   Int            ; samples into current note
+   dur-samps   Int            ; total samples for current note
+   note-active Bool])         ; has note-on been fired for this step
+
+(defmodule Seq
+
+  (defn ms-to-samps [ms]
+    (Float.to-int (* (Float.from-int ms)
+                     (/ (Float.from-int sample-rate) 1000.0f))))
+
+  (defn make [notes]
+    (let [first-dur (Note.dur-ms (Array.unsafe-nth &notes 0))]
+      (Seq.init notes 0 0 (ms-to-samps @first-dur) false)))
+
+  ; advance sequencer by one buffer, fire envelope events as needed
+  ; returns current frequency (0 = rest)
+  (defn tick [seq env]
+    (let-do [note     (Array.unsafe-nth (Seq.notes seq) @(Seq.cursor seq))
+             freq     @(Note.freq note)
+             pos      @(Seq.pos-samps seq)
+             dur      @(Seq.dur-samps seq)
+             active   @(Seq.note-active seq)]
+      ; fire note-on at start of non-rest note
+      (when (and (not active) (not (= freq 0)))
+        (do
+          (Env.note-on! env)
+          (Seq.set-note-active! seq true)))
+      ; advance position by one buffer
+      (Seq.set-pos-samps! seq (+ pos buf-frames))
+      ; advance to next note when duration elapsed
+      (when (>= (+ pos buf-frames) dur)
+        (let-do [next (mod (+ @(Seq.cursor seq) 1)
+                           (Array.length (Seq.notes seq)))
+                 next-note (Array.unsafe-nth (Seq.notes seq) next)
+                 next-dur  (ms-to-samps @(Note.dur-ms next-note))]
+          ; fire note-off when leaving a non-rest note
+          (when active (Env.note-off! env))
+          (Seq.set-cursor!      seq next)
+          (Seq.set-pos-samps!   seq 0)
+          (Seq.set-dur-samps!   seq next-dur)
+          (Seq.set-note-active! seq false)))
+      freq))
+
+)
