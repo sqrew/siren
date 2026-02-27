@@ -195,109 +195,109 @@ You should hear a looping C major arpeggio. Press Ctrl-C to stop.
 
 ### Siren (Runtime)
 
-| Function | Signature | Description |
-|----------|-----------|-------------|
-| `Siren.init` | `() -> ()` | Initialize SDL audio subsystem |
-| `Siren.open` | `() -> Int` | Open audio device and start playback; returns device ID |
-| `Siren.tick` | `(Ref Int) (Ref Mixer) -> ()` | Pump audio for one frame |
-| `Siren.run` | `(Ref Mixer) -> ()` | Blocking standalone loop; opens device and runs forever |
+| Function     | Signature                     | Description                                             |
+|--------------|-------------------------------|---------------------------------------------------------|
+| `Siren.init` | `() -> ()`                    | Initialize SDL audio subsystem                          |
+| `Siren.open` | `() -> Int`                   | Open audio device and start playback; returns device ID |
+| `Siren.tick` | `(Ref Int) (Ref Mixer) -> ()` | Pump audio for one frame                                |
+| `Siren.run`  | `(Ref Mixer) -> ()`           | Blocking standalone loop; opens device and runs forever |
 
 ### Mixer
 
-| Function | Signature | Description |
-|----------|-----------|-------------|
-| `Mixer.make` | `Int -> Mixer` | Create mixer with N named voice slots |
-| `Mixer.set-channel!` | `(Ref Mixer) Int Channel -> ()` | Replace the Channel in named slot i |
-| `Mixer.set-seq!` | `(Ref Mixer) Int Seq -> ()` | Replace the Seq in named slot i |
-| `Mixer.set-pan!` | `(Ref Mixer) Int Float -> ()` | Set pan for slot i (-1.0 left, 0.0 center, 1.0 right) |
-| `Mixer.sfx!` | `(Ref Mixer) Float Channel -> ()` | Fire a one-shot SFX at center pan |
-| `Mixer.sfx-at!` | `(Ref Mixer) Float Float Channel -> ()` | Fire a one-shot SFX at explicit pan |
-| `Mixer.set-master-vol!` | `(Ref Mixer) Float -> ()` | Set master volume (0.0–1.0, default 1.0) |
-| `Mixer.set-sample-player!` | `(Ref Mixer) Int SamplePlayer -> ()` | Install a SamplePlayer in sample slot i |
-| `Mixer.set-sample-pan!` | `(Ref Mixer) Int Float -> ()` | Set pan for sample slot i |
-| `Mixer.play-sample!` | `(Ref Mixer) Int -> ()` | Start playback on sample slot i |
-| `Mixer.stop-sample!` | `(Ref Mixer) Int -> ()` | Stop playback on sample slot i |
-| `Mixer.tick` | `(Ref Mixer) -> ()` | Tick all voices, sum to stereo, clamp output |
+| Function                   | Signature                               | Description                                           |
+|----------------------------|-----------------------------------------|-------------------------------------------------------|
+| `Mixer.make`               | `Int -> Mixer`                          | Create mixer with N named voice slots                 |
+| `Mixer.set-channel!`       | `(Ref Mixer) Int Channel -> ()`         | Replace the Channel in named slot i                   |
+| `Mixer.set-seq!`           | `(Ref Mixer) Int Seq -> ()`             | Replace the Seq in named slot i                       |
+| `Mixer.set-pan!`           | `(Ref Mixer) Int Float -> ()`           | Set pan for slot i (-1.0 left, 0.0 center, 1.0 right) |
+| `Mixer.sfx!`               | `(Ref Mixer) Float Channel -> ()`       | Fire a one-shot SFX at center pan                     |
+| `Mixer.sfx-at!`            | `(Ref Mixer) Float Float Channel -> ()` | Fire a one-shot SFX at explicit pan                   |
+| `Mixer.set-master-vol!`    | `(Ref Mixer) Float -> ()`               | Set master volume (0.0–1.0, default 1.0)              |
+| `Mixer.set-sample-player!` | `(Ref Mixer) Int SamplePlayer -> ()`    | Install a SamplePlayer in sample slot i               |
+| `Mixer.set-sample-pan!`    | `(Ref Mixer) Int Float -> ()`           | Set pan for sample slot i                             |
+| `Mixer.play-sample!`       | `(Ref Mixer) Int -> ()`                 | Start playback on sample slot i                       |
+| `Mixer.stop-sample!`       | `(Ref Mixer) Int -> ()`                 | Stop playback on sample slot i                        |
+| `Mixer.tick`               | `(Ref Mixer) -> ()`                     | Tick all voices, sum to stereo, clamp output          |
 
 ### Channel
 
-| Function | Signature | Description |
-|----------|-----------|-------------|
-| `Channel.make` | `Int Int Int Float Int Float -> Channel` | waveform, attack-ms, decay-ms, sustain, release-ms, gain |
-| `Channel.play!` | `(Ref Channel) Float -> ()` | Trigger a note at the given frequency (Hz) |
-| `Channel.release!` | `(Ref Channel) -> ()` | Release the current note |
-| `Channel.set-lp!` | `(Ref Channel) Float Float -> ()` | Enable low-pass filter: cutoff Hz, Q |
-| `Channel.set-hp!` | `(Ref Channel) Float Float -> ()` | Enable high-pass filter: cutoff Hz, Q |
-| `Channel.set-bp!` | `(Ref Channel) Float Float -> ()` | Enable band-pass filter: center Hz, Q |
-| `Channel.clear-filter!` | `(Ref Channel) -> ()` | Disable filter |
-| `Channel.set-lfo-freq!` | `(Ref Channel) Float Float -> ()` | Enable pitch vibrato: rate Hz, depth Hz |
-| `Channel.set-lfo-amp!` | `(Ref Channel) Float Float -> ()` | Enable tremolo: rate Hz, depth 0..1 |
-| `Channel.clear-lfo!` | `(Ref Channel) -> ()` | Disable LFO |
+| Function                | Signature                                | Description                                              |
+|-------------------------|------------------------------------------|----------------------------------------------------------|
+| `Channel.make`          | `Int Int Int Float Int Float -> Channel` | waveform, attack-ms, decay-ms, sustain, release-ms, gain |
+| `Channel.play!`         | `(Ref Channel) Float -> ()`              | Trigger a note at the given frequency (Hz)               |
+| `Channel.release!`      | `(Ref Channel) -> ()`                    | Release the current note                                 |
+| `Channel.set-lp!`       | `(Ref Channel) Float Float -> ()`        | Enable low-pass filter: cutoff Hz, Q                     |
+| `Channel.set-hp!`       | `(Ref Channel) Float Float -> ()`        | Enable high-pass filter: cutoff Hz, Q                    |
+| `Channel.set-bp!`       | `(Ref Channel) Float Float -> ()`        | Enable band-pass filter: center Hz, Q                    |
+| `Channel.clear-filter!` | `(Ref Channel) -> ()`                    | Disable filter                                           |
+| `Channel.set-lfo-freq!` | `(Ref Channel) Float Float -> ()`        | Enable pitch vibrato: rate Hz, depth Hz                  |
+| `Channel.set-lfo-amp!`  | `(Ref Channel) Float Float -> ()`        | Enable tremolo: rate Hz, depth 0..1                      |
+| `Channel.clear-lfo!`    | `(Ref Channel) -> ()`                    | Disable LFO                                              |
 
 ### Seq / Note
 
-| Function | Signature | Description |
-|----------|-----------|-------------|
-| `Seq.make` | `(Array Note) -> Seq` | Create a sequencer from a note array |
-| `Note.make` | `Float Int -> Note` | frequency Hz, duration ms |
-| `Note.rest` | `Int -> Note` | Silence of given duration ms |
-| `note` | macro | Sugar: `(note note-c4 500)` → `(Note.make note-c4 500)` |
-| `defsong` | macro | Build a typed `(Array Note)` from variadic notes |
+| Function    | Signature             | Description                                             |
+|-------------|-----------------------|---------------------------------------------------------|
+| `Seq.make`  | `(Array Note) -> Seq` | Create a sequencer from a note array                    |
+| `Note.make` | `Float Int -> Note`   | frequency Hz, duration ms                               |
+| `Note.rest` | `Int -> Note`         | Silence of given duration ms                            |
+| `note`      | macro                 | Sugar: `(note note-c4 500)` → `(Note.make note-c4 500)` |
+| `defsong`   | macro                 | Build a typed `(Array Note)` from variadic notes        |
 
 ### Filter
 
-| Function | Signature | Description |
-|----------|-----------|-------------|
-| `Filter.make-lp` | `Float Float -> Filter` | Low-pass: cutoff Hz, Q |
-| `Filter.make-hp` | `Float Float -> Filter` | High-pass: cutoff Hz, Q |
-| `Filter.make-bp` | `Float Float -> Filter` | Band-pass: center Hz, Q |
-| `Filter.fill` | `(Ref (Array Float)) (Ref Filter) -> ()` | Apply filter in-place to a mono buffer |
+| Function         | Signature                                | Description                            |
+|------------------|------------------------------------------|----------------------------------------|
+| `Filter.make-lp` | `Float Float -> Filter`                  | Low-pass: cutoff Hz, Q                 |
+| `Filter.make-hp` | `Float Float -> Filter`                  | High-pass: cutoff Hz, Q                |
+| `Filter.make-bp` | `Float Float -> Filter`                  | Band-pass: center Hz, Q                |
+| `Filter.fill`    | `(Ref (Array Float)) (Ref Filter) -> ()` | Apply filter in-place to a mono buffer |
 
 ### Osc
 
 All oscillators: `(Ref (Array Float)) Float Float -> Float` — buffer, frequency Hz, phase → next phase.
 
-| Function | Description |
-|----------|-------------|
-| `Osc.fill-sine` | Sine wave |
-| `Osc.fill-square` | Square wave |
-| `Osc.fill-saw` | Sawtooth wave |
+| Function            | Description   |
+|---------------------|---------------|
+| `Osc.fill-sine`     | Sine wave     |
+| `Osc.fill-square`   | Square wave   |
+| `Osc.fill-saw`      | Sawtooth wave |
 | `Osc.fill-triangle` | Triangle wave |
-| `Osc.fill-noise` | White noise |
-
+| `Osc.fill-noise`    | White noise   |
+    
 ### SamplePlayer / Wav
 
-| Function | Signature | Description |
-|----------|-----------|-------------|
-| `SamplePlayer.make` | `(Array Float) -> SamplePlayer` | One-shot player |
+| Function                 | Signature                               | Description                                   |
+|--------------------------|-----------------------------------------|-----------------------------------------------|
+| `SamplePlayer.make`      | `(Array Float) -> SamplePlayer`         | One-shot player                               |
 | `SamplePlayer.make-loop` | `(Array Float) Int Int -> SamplePlayer` | Looping player: samples, loop-start, loop-end |
-| `SamplePlayer.play!` | `(Ref SamplePlayer) -> ()` | Start/restart playback |
-| `SamplePlayer.stop!` | `(Ref SamplePlayer) -> ()` | Stop playback |
-| `Wav.load` | `(Ref String) -> (Array Float)` | Load mono 16-bit 44100 Hz WAV as f32 samples |
+| `SamplePlayer.play!`     | `(Ref SamplePlayer) -> ()`              | Start/restart playback                        |
+| `SamplePlayer.stop!`     | `(Ref SamplePlayer) -> ()`              | Stop playback                                 |
+| `Wav.load`               | `(Ref String) -> (Array Float)`         | Load mono 16-bit 44100 Hz WAV as f32 samples  |
 
 > **Note:** `Wav.load` only supports mono, 16-bit, 44100 Hz WAV files. Anything else returns an empty array silently — check `(Array.length &samples)`.
 
 ### BPM Helpers
 
-| Function/Macro | Description |
-|----------------|-------------|
-| `beats->ms` | `Int Float -> Int` — BPM + beat count → milliseconds |
-| `defbpm` | Defines `whole`, `half`, `quarter`, `eighth`, `sixteenth`, `dotted-*`, `triplet-*` at given BPM |
+| Function/Macro | Description                                                                                     |
+|----------------|-------------------------------------------------------------------------------------------------|
+| `beats->ms`    | `Int Float -> Int` — BPM + beat count → milliseconds                                            |
+| `defbpm`       | Defines `whole`, `half`, `quarter`, `eighth`, `sixteenth`, `dotted-*`, `triplet-*` at given BPM |
 
 Beat values: 1.0 = quarter, 2.0 = half, 4.0 = whole, 0.5 = eighth, 0.25 = sixteenth.
 
 ### Constants
 
-| Name | Value | Description |
-|------|-------|-------------|
-| `sample-rate` | 44100 | Samples per second |
-| `buf-frames` | 512 | Mono frames per buffer (~11.6ms) |
-| `buf-size` | 1024 | Floats per stereo buffer |
-| `osc-sine` | 0 | Sine waveform constant |
-| `osc-square` | 1 | Square waveform constant |
-| `osc-saw` | 2 | Saw waveform constant |
-| `osc-triangle` | 3 | Triangle waveform constant |
-| `osc-noise` | 4 | Noise waveform constant |
+| Name           | Value | Description                      |
+|----------------|-------|----------------------------------|
+| `sample-rate`  | 44100 | Samples per second               |
+| `buf-frames`   | 512   | Mono frames per buffer (~11.6ms) |
+| `buf-size`     | 1024  | Floats per stereo buffer         |
+| `osc-sine`     | 0     | Sine waveform constant           |
+| `osc-square`   | 1     | Square waveform constant         |
+| `osc-saw`      | 2     | Saw waveform constant            |
+| `osc-triangle` | 3     | Triangle waveform constant       |
+| `osc-noise`    | 4     | Noise waveform constant          |
 
 ---
 
@@ -305,18 +305,18 @@ Beat values: 1.0 = quarter, 2.0 = half, 4.0 = whole, 0.5 = eighth, 0.25 = sixtee
 
 Presets are macros expanding to `Channel.make` with baked-in ADSR. Pass a gain value (0.0–1.0).
 
-| Preset | Character | Best For |
-|--------|-----------|----------|
-| `pluck-square`, `pluck-saw` | Fast attack, percussive | Leads, SFX, staccato |
-| `pad-sine`, `pad-triangle` | Slow attack, airy sustain | Chords, atmosphere |
-| `bass-saw`, `bass-square` | Punchy, short decay | Bass lines |
-| `lead-square`, `lead-triangle` | Medium attack, singing sustain | Melodies |
-| `perc-noise`, `perc-square` | Instant attack, drum-like | Drums, percussion |
+| Preset                         | Character                      | Best For             |
+|--------------------------------|--------------------------------|----------------------|
+| `pluck-square`, `pluck-saw`    | Fast attack, percussive        | Leads, SFX, staccato |
+| `pad-sine`, `pad-triangle`     | Slow attack, airy sustain      | Chords, atmosphere   |
+| `bass-saw`, `bass-square`      | Punchy, short decay            | Bass lines           |
+| `lead-square`, `lead-triangle` | Medium attack, singing sustain | Melodies             |
+| `perc-noise`, `perc-square`    | Instant attack, drum-like      | Drums, percussion    |
 
-Custom instrument:
+    Custom instrument:
 
 ```clojure
-; saw wave, 10ms attack, 200ms decay, 0.3 sustain, 500ms release, 0.6 gain
+    ; saw wave, 10ms attack, 200ms decay, 0.3 sustain, 500ms release, 0.6 gain
 (Channel.make osc-saw 10 200 0.3f 500 0.6f)
 ```
 
@@ -328,8 +328,8 @@ All 88 piano keys defined as `Float` Hz constants using equal temperament (`440 
 
 Range: `note-a0` (27.50 Hz) through `note-c8` (4186.01 Hz). Key reference points:
 
-| Note | Hz | Note | Hz |
-|------|----|------|----|
+| Note      | Hz     | Note      | Hz     |
+|-----------|--------|-----------|--------|
 | `note-c4` | 261.63 | `note-a4` | 440.00 |
 | `note-c5` | 523.25 | `note-a5` | 880.00 |
 | `note-c3` | 130.81 | `note-a3` | 220.00 |
@@ -375,21 +375,21 @@ The SFX pool has 4 round-robin slots. Use presets with `sustain = 0.0` (pluck, p
 
 ## Source Files
 
-| File | Purpose |
-|------|---------|
-| `src/siren.carp` | Entry point; loads everything; defines Siren runtime |
-| `src/constants.carp` | Engine constants, `ms-to-samps` |
-| `src/notes.carp` | 88 piano key frequency constants |
-| `src/oscillators.carp` | 5 oscillator fill functions |
-| `src/envelope.carp` | ADSR envelope state machine |
-| `src/filter.carp` | Biquad filter: LP/HP/BP |
-| `src/lfo.carp` | LFO for pitch/amplitude modulation |
-| `src/channel.carp` | Complete voice: osc + env + filter + LFO |
-| `src/sequencer.carp` | Step sequencer and Note type |
-| `src/bpm.carp` | `beats->ms` and `defbpm` macro |
-| `src/wav.carp` | WAV sample player |
-| `src/presets.carp` | Instrument presets, `note`/`defsong` macros |
-| `src/mixer.carp` | Polyphonic mixer with stereo output |
-| `src/SDLAudio.carp` | SDL2 audio queue bindings |
-| `examples/basic.carp` | Comprehensive example |
-| `test/run.carp` | Test runner (103 tests) |
+| File                   | Purpose                                              |
+|------------------------|------------------------------------------------------|
+| `src/siren.carp`       | Entry point; loads everything; defines Siren runtime |
+| `src/constants.carp`   | Engine constants, `ms-to-samps`                      |
+| `src/notes.carp`       | 88 piano key frequency constants                     |
+| `src/oscillators.carp` | 5 oscillator fill functions                          |
+| `src/envelope.carp`    | ADSR envelope state machine                          |
+| `src/filter.carp`      | Biquad filter: LP/HP/BP                              |
+| `src/lfo.carp`         | LFO for pitch/amplitude modulation                   |
+| `src/channel.carp`     | Complete voice: osc + env + filter + LFO             |
+| `src/sequencer.carp`   | Step sequencer and Note type                         |
+| `src/bpm.carp`         | `beats->ms` and `defbpm` macro                       |
+| `src/wav.carp`         | WAV sample player                                    |
+| `src/presets.carp`     | Instrument presets, `note`/`defsong` macros          |
+| `src/mixer.carp`       | Polyphonic mixer with stereo output                  |
+| `src/SDLAudio.carp`    | SDL2 audio queue bindings                            |
+| `examples/basic.carp`  | Comprehensive example                                |
+| `test/run.carp`        | Test runner (103 tests)                              |
