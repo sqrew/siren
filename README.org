@@ -78,9 +78,50 @@ ever needs to run somewhere truly headless (no display, no input, bare metal
 audio only), the backend can be swapped to [[https://github.com/mackron/miniaudio][miniaudio]] — a single-header C
 library — without touching anything else. The abstraction is already there.
 
+* Getting Started
+
+Clone Siren into your project directory:
+
+#+BEGIN_SRC bash
+git clone https://github.com/sqrew/siren.git
+#+END_SRC
+
+Then load it from your Carp source:
+
+#+BEGIN_SRC carp
+(load "siren/siren.carp")
+#+END_SRC
+
+Install SDL2 if you haven't already:
+
+#+BEGIN_SRC bash
+# Arch / Manjaro
+sudo pacman -S sdl2
+
+# Debian / Ubuntu
+sudo apt install libsdl2-dev
+
+# macOS
+brew install sdl2
+#+END_SRC
+
+Run the example:
+
+#+BEGIN_SRC bash
+carp -x examples/basic.carp
+#+END_SRC
+
+Run the tests:
+
+#+BEGIN_SRC bash
+carp test/run.carp -x
+#+END_SRC
+
+Full API documentation: [[./DOCS.md][DOCS.md]]
+
 * Status
 
-Functional and tested. 72 tests, all passing. Real polyphonic music plays.
+Functional and tested. 103 tests, all passing. Real polyphonic music plays.
 The architecture is proven. Not production-hardened — this is a research
 project and a love letter to a language that deserves more users.
 
