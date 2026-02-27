@@ -1,13 +1,16 @@
+(load "constants.carp")
+(load "channel.carp")
+
 ; sequencer.carp — simple step sequencer
 ; walks an array of Notes, triggers envelope events at the right time
 ; one note at a time, monophonic
 
-; a single step: frequency in hz, duration in ms, 0 = rest
-(deftype Note [freq Int dur-ms Int])
+; a single step: frequency in hz (float), duration in ms, 0.0 = rest
+(deftype Note [freq Float dur-ms Int])
 
 (defmodule Note
   (defn make [freq dur-ms] (Note.init freq dur-ms))
-  (defn rest [dur-ms]      (Note.init 0 dur-ms))
+  (defn rest [dur-ms]      (Note.init 0.0f dur-ms))
 )
 
 (deftype Seq
@@ -19,39 +22,126 @@
 
 (defmodule Seq
 
-  (defn ms-to-samps [ms]
-    (Float.to-int (* (Float.from-int ms)
-                     (/ (Float.from-int sample-rate) 1000.0f))))
-
   (defn make [notes]
-    (let [first-dur (Note.dur-ms (Array.unsafe-nth &notes 0))]
-      (Seq.init notes 0 0 (ms-to-samps @first-dur) false)))
+    (if (= (Array.length &notes) 0)
+      (Seq.init [] 0 0 0 false)
+      (let [first-dur (Note.dur-ms (Array.unsafe-nth &notes 0))]
+        (Seq.init notes 0 0 (ms-to-samps @first-dur) false))))
 
-  ; advance sequencer by one buffer, fire channel events as needed
+  ; advance sequencer by one buffer, fire channel events as needed.
+  ; sequence of operations per call:
+  ;   1. if the current note just started (not active) and isn't a rest,
+  ;      fire Channel.play! to begin the note
+  ;   2. advance pos-samps by buf-frames (one buffer's worth of time)
+  ;   3. drain loop: while pos-samps >= dur-samps, the current note has
+  ;      elapsed. fire Channel.release!, subtract its duration from pos
+  ;      (carrying over the remainder so timing stays sample-accurate),
+  ;      advance cursor to the next note (wrapping), and fire play! for
+  ;      the new note if it isn't a rest. this loop handles notes shorter
+  ;      than one buffer — multiple notes can complete in a single tick.
   (defn tick [seq ch]
-    (let-do [note   (Array.unsafe-nth (Seq.notes seq) @(Seq.cursor seq))
-             freq   @(Note.freq note)
-             pos    @(Seq.pos-samps seq)
-             dur    @(Seq.dur-samps seq)
-             active @(Seq.note-active seq)]
-      ; fire play! at start of non-rest note
-      (when (and (not active) (not (= freq 0)))
-        (do
-          (Channel.play! ch freq)
-          (Seq.set-note-active! seq true)))
-      ; advance position by one buffer
-      (Seq.set-pos-samps! seq (+ pos buf-frames))
-      ; advance to next note when duration elapsed
-      (when (>= (+ pos buf-frames) dur)
-        (let-do [next      (mod (+ @(Seq.cursor seq) 1)
-                                (Array.length (Seq.notes seq)))
-                 next-note (Array.unsafe-nth (Seq.notes seq) next)
-                 next-dur  (ms-to-samps @(Note.dur-ms next-note))]
-          ; fire release! when leaving a non-rest note
-          (when active (Channel.release! ch))
-          (Seq.set-cursor!      seq next)
-          (Seq.set-pos-samps!   seq 0)
-          (Seq.set-dur-samps!   seq next-dur)
-          (Seq.set-note-active! seq false)))))
+    (when (> (Array.length (Seq.notes seq)) 0)
+      (let-do [note   (Array.unsafe-nth (Seq.notes seq) @(Seq.cursor seq))
+               freq   @(Note.freq note)
+               pos    @(Seq.pos-samps seq)
+               active @(Seq.note-active seq)]
+        ; fire play! at start of non-rest note
+        (when (and (not active) (not (= freq 0.0f)))
+          (do
+            (Channel.play! ch freq)
+            (Seq.set-note-active! seq true)))
+        ; advance position by one buffer
+        (Seq.set-pos-samps! seq (+ pos buf-frames))
+        ; drain all elapsed notes — handles notes shorter than buf-frames
+        ; carries over excess position so timing stays accurate
+        (while (>= @(Seq.pos-samps seq) @(Seq.dur-samps seq))
+          (let-do [cur-active @(Seq.note-active seq)
+                   next       (mod (+ @(Seq.cursor seq) 1)
+                                   (Array.length (Seq.notes seq)))
+                   next-note  (Array.unsafe-nth (Seq.notes seq) next)
+                   next-dur   (ms-to-samps @(Note.dur-ms next-note))]
+            (when cur-active (Channel.release! ch))
+            (Seq.set-pos-samps!   seq (- @(Seq.pos-samps seq) @(Seq.dur-samps seq)))
+            (Seq.set-cursor!      seq next)
+            (Seq.set-dur-samps!   seq next-dur)
+            (Seq.set-note-active! seq false)
+            ; fire play! for the newly entered note if non-rest
+            (let [nf @(Note.freq (Array.unsafe-nth (Seq.notes seq) @(Seq.cursor seq)))]
+              (when (not (= nf 0.0f))
+                (do
+                  (Channel.play! ch nf)
+                  (Seq.set-note-active! seq true)))))))))
 
 )
+
+; --- Tests ---
+
+(defn sequencer-tests []
+  (ignore (with-test state
+    ; Note.make stores freq
+    (let [n (Note.make 440.0f 100)]
+      (Test.assert-equal state 440.0f @(Note.freq &n) "Note.make stores freq"))
+    ; Note.make stores dur-ms
+    (let [n (Note.make 440.0f 100)]
+      (Test.assert-equal state 100 @(Note.dur-ms &n) "Note.make stores dur-ms"))
+    ; Note.rest freq is 0.0
+    (let [n (Note.rest 100)]
+      (Test.assert-equal state 0.0f @(Note.freq &n) "Note.rest freq is 0"))
+    ; Seq.make cursor starts at 0
+    (let [s (Seq.make [(Note.make 440.0f 1000)])]
+      (Test.assert-equal state 0 @(Seq.cursor &s) "Seq.make cursor is 0"))
+    ; Seq.make note-active starts false
+    (let [s (Seq.make [(Note.make 440.0f 1000)])]
+      (Test.assert-equal state false @(Seq.note-active &s) "Seq.make note-active is false"))
+    ; Seq.make dur-samps = ms-to-samps of first note
+    (let [s (Seq.make [(Note.make 440.0f 1000)])]
+      (Test.assert-equal state (ms-to-samps 1000) @(Seq.dur-samps &s) "Seq.make dur-samps correct"))
+    ; tick on long note: note-active becomes true
+    (let [s  (Seq.make [(Note.make 440.0f 1000)])
+          ch (Channel.make osc-sine 0 0 0.5f 0 0.5f)]
+      (do
+        (Seq.tick &s &ch)
+        (Test.assert-equal state true @(Seq.note-active &s) "tick fires note-active")))
+    ; tick on long note: pos-samps advances by buf-frames
+    (let [s  (Seq.make [(Note.make 440.0f 1000)])
+          ch (Channel.make osc-sine 0 0 0.5f 0 0.5f)]
+      (do
+        (Seq.tick &s &ch)
+        (Test.assert-equal state buf-frames @(Seq.pos-samps &s) "tick advances pos-samps")))
+    ; tick on long note: cursor unchanged
+    (let [s  (Seq.make [(Note.make 440.0f 1000)])
+          ch (Channel.make osc-sine 0 0 0.5f 0 0.5f)]
+      (do
+        (Seq.tick &s &ch)
+        (Test.assert-equal state 0 @(Seq.cursor &s) "long note tick keeps cursor")))
+    ; tick on short note (dur < buf-frames): cursor advances
+    (let [s  (Seq.make [(Note.make 440.0f 10) (Note.make 440.0f 1000)])
+          ch (Channel.make osc-sine 0 0 0.5f 0 0.5f)]
+      (do
+        (Seq.tick &s &ch)
+        (Test.assert-equal state 1 @(Seq.cursor &s) "short note tick advances cursor")))
+    ; after cursor advance into non-rest: play! fires, note-active is true
+    (let [s  (Seq.make [(Note.make 440.0f 10) (Note.make 880.0f 1000)])
+          ch (Channel.make osc-sine 0 0 0.5f 0 0.5f)]
+      (do
+        (Seq.tick &s &ch)
+        (Test.assert-equal state true @(Seq.note-active &s) "cursor advance into note fires play!")))
+    ; after cursor advance: pos-samps carries over remainder (not reset to 0)
+    (let [s  (Seq.make [(Note.make 440.0f 10) (Note.make 440.0f 1000)])
+          ch (Channel.make osc-sine 0 0 0.5f 0 0.5f)]
+      (do
+        (Seq.tick &s &ch)
+        ; 10ms = 441 samples, buf-frames=512, carry-over = 512-441 = 71
+        (Test.assert-equal state (- buf-frames (ms-to-samps 10)) @(Seq.pos-samps &s) "cursor advance carries over pos-samps")))
+    ; after cursor advance: channel freq updated to new note's freq
+    (let [s  (Seq.make [(Note.make 440.0f 10) (Note.make 880.0f 1000)])
+          ch (Channel.make osc-sine 0 0 0.5f 0 0.5f)]
+      (do
+        (Seq.tick &s &ch)
+        (Test.assert-equal state 880.0f @(Channel.freq &ch) "cursor advance updates channel freq")))
+    ; rest note: note-active stays false after tick
+    (let [s  (Seq.make [(Note.rest 1000)])
+          ch (Channel.make osc-sine 0 0 0.5f 0 0.5f)]
+      (do
+        (Seq.tick &s &ch)
+        (Test.assert-equal state false @(Seq.note-active &s) "rest note stays inactive"))))))

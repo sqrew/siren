@@ -1,0 +1,93 @@
+(load "sequencer.carp")
+
+; bpm.carp — BPM-synced note duration helpers
+;
+; two ways to work with tempo:
+;
+; 1. (defbpm bpm) — define standard duration names at a given tempo.
+;    one line at the top of your music file, then use plain names:
+;
+;      (defbpm 120)
+;      (def verse
+;        [(note note-c4 quarter)
+;         (note note-g4 half)
+;         (note note-a4 dotted-quarter)
+;         (Note.rest    eighth)])
+;
+;    call defbpm again to change tempo — sequences already built keep their
+;    original values (they were constructed with the old numbers).
+;
+;      (defbpm 160)
+;      (def chorus [(note note-c4 quarter) ...])  ; quarter = 375ms now
+;
+;    defines: whole, half, quarter, eighth, sixteenth,
+;             dotted-half, dotted-quarter, dotted-eighth,
+;             triplet-quarter, triplet-eighth
+;
+; 2. (beats->ms bpm beats) → Int — manual conversion when you want
+;    explicit control or multiple tempos in the same scope:
+;
+;      (def q (beats->ms 120 1.0f))   ; 500ms — quarter at 120 BPM
+;      (def h (beats->ms 120 2.0f))   ; 1000ms — half
+;      (def e (beats->ms 120 0.5f))   ; 250ms — eighth
+;
+;    beats: 1.0 = quarter, 2.0 = half, 4.0 = whole, 0.5 = eighth, 0.25 = sixteenth
+;           1.5 = dotted quarter, 0.75 = dotted eighth, 0.667 = triplet quarter
+
+; --- core conversion ---
+
+; (beats->ms bpm beats) → Int milliseconds
+; bpm: tempo in beats per minute (Int)
+; beats: duration in beats (Float), where 1.0 = one quarter note
+(defn beats->ms [bpm beats]
+  (Float.to-int (* (/ 60000.0f (Float.from-int bpm)) beats)))
+
+; --- defbpm macro ---
+
+; (defbpm bpm) — define standard duration names at the given tempo.
+; all values are in milliseconds, ready to use directly in (note ...) calls.
+; calling defbpm again resets all names to the new tempo.
+(defmacro defbpm [bpm]
+  (list 'do
+    (list 'def 'whole           (list 'beats->ms bpm 4.0f))
+    (list 'def 'half            (list 'beats->ms bpm 2.0f))
+    (list 'def 'quarter         (list 'beats->ms bpm 1.0f))
+    (list 'def 'eighth          (list 'beats->ms bpm 0.5f))
+    (list 'def 'sixteenth       (list 'beats->ms bpm 0.25f))
+    (list 'def 'dotted-half     (list 'beats->ms bpm 3.0f))
+    (list 'def 'dotted-quarter  (list 'beats->ms bpm 1.5f))
+    (list 'def 'dotted-eighth   (list 'beats->ms bpm 0.75f))
+    (list 'def 'triplet-quarter (list 'beats->ms bpm 0.667f))
+    (list 'def 'triplet-eighth  (list 'beats->ms bpm 0.333f))))
+
+; --- tests ---
+
+(defn bpm-tests []
+  (ignore (with-test state
+    ; beats->ms: quarter note at 120 BPM = 500ms
+    (Test.assert-equal state 500 (beats->ms 120 1.0f)
+      "beats->ms: quarter at 120 BPM = 500ms")
+    ; beats->ms: half note at 120 BPM = 1000ms
+    (Test.assert-equal state 1000 (beats->ms 120 2.0f)
+      "beats->ms: half at 120 BPM = 1000ms")
+    ; beats->ms: whole note at 120 BPM = 2000ms
+    (Test.assert-equal state 2000 (beats->ms 120 4.0f)
+      "beats->ms: whole at 120 BPM = 2000ms")
+    ; beats->ms: eighth note at 120 BPM = 250ms
+    (Test.assert-equal state 250 (beats->ms 120 0.5f)
+      "beats->ms: eighth at 120 BPM = 250ms")
+    ; beats->ms: sixteenth note at 120 BPM = 125ms
+    (Test.assert-equal state 125 (beats->ms 120 0.25f)
+      "beats->ms: sixteenth at 120 BPM = 125ms")
+    ; beats->ms: quarter at 60 BPM = 1000ms
+    (Test.assert-equal state 1000 (beats->ms 60 1.0f)
+      "beats->ms: quarter at 60 BPM = 1000ms")
+    ; beats->ms: quarter at 240 BPM = 250ms
+    (Test.assert-equal state 250 (beats->ms 240 1.0f)
+      "beats->ms: quarter at 240 BPM = 250ms")
+    ; beats->ms: dotted quarter at 120 BPM = 750ms
+    (Test.assert-equal state 750 (beats->ms 120 1.5f)
+      "beats->ms: dotted quarter at 120 BPM = 750ms")
+    ; beats->ms: dotted eighth at 120 BPM = 375ms
+    (Test.assert-equal state 375 (beats->ms 120 0.75f)
+      "beats->ms: dotted eighth at 120 BPM = 375ms"))))

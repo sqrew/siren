@@ -21,10 +21,6 @@
 
 (defmodule Env
 
-  (defn ms-to-samps [ms]
-    (Float.to-int (* (Float.from-int ms)
-                     (/ (Float.from-int sample-rate) 1000.0f))))
-
   (defn make [attack-ms decay-ms sustain release-ms]
     (Env.init (ms-to-samps attack-ms)
               (ms-to-samps decay-ms)
@@ -41,13 +37,18 @@
       (Env.set-pos!   env 0)
       (Env.set-level! env 0.0f)))
 
+  ; snapshot the current level before entering release, so the release
+  ; curve fades from wherever the envelope actually is — not from 1.0.
+  ; this prevents a level jump if note-off arrives during attack or decay.
   (defn note-off! [env]
     (do
       (Env.set-release-from! env @(Env.level env))
       (Env.set-stage!        env env-release)
       (Env.set-pos!          env 0)))
 
-  ; advance envelope by one sample, return current amplitude
+  ; advance envelope by one sample, return current amplitude.
+  ; state machine: each stage ramps pos from 0 to stage-length, then
+  ; transitions to the next stage. the nested if-chain is Carp's cond.
   (defn tick [env]
     (let [stage @(Env.stage env)
           pos   @(Env.pos env)]
@@ -97,3 +98,89 @@
       (aset! buf i (* @(Array.unsafe-nth buf i) (tick env)))))
 
 )
+
+; --- Tests ---
+
+(defn envelope-tests []
+  (ignore (with-test state
+    ; fresh env starts in env-done
+    (let [e (Env.make 10 10 0.5f 10)]
+      (Test.assert-equal state env-done @(Env.stage &e) "fresh env is done"))
+    ; fresh env level is zero
+    (let [e (Env.make 10 10 0.5f 10)]
+      (Test.assert-equal state 0.0f @(Env.level &e) "fresh env level zero"))
+    ; note-on! sets stage to attack
+    (let [e (Env.make 10 10 0.5f 10)]
+      (do
+        (Env.note-on! &e)
+        (Test.assert-equal state env-attack @(Env.stage &e) "note-on sets attack")))
+    ; tick on env-done returns zero
+    (let [e (Env.make 10 10 0.5f 10)]
+      (Test.assert-equal state 0.0f (Env.tick &e) "tick done gives zero"))
+    ; zero-length attack: first tick returns 1.0
+    (let [e (Env.make 0 10 0.5f 10)]
+      (do
+        (Env.note-on! &e)
+        (Test.assert-equal state 1.0f (Env.tick &e) "zero-attack tick gives 1.0")))
+    ; zero-length attack: stage is decay after one tick
+    (let [e (Env.make 0 10 0.5f 10)]
+      (do
+        (Env.note-on! &e)
+        (ignore (Env.tick &e))
+        (Test.assert-equal state env-decay @(Env.stage &e) "zero-attack transitions to decay")))
+    ; sustain: tick returns sustain level
+    (let [e (Env.make 0 0 0.5f 100)]
+      (do
+        (Env.note-on! &e)
+        (ignore (Env.tick &e))   ; through attack
+        (ignore (Env.tick &e))   ; through decay
+        (Test.assert-true state (Float.approx (Env.tick &e) 0.5f) "sustain returns sustain level")))
+    ; note-off! captures level into release-from
+    (let [e (Env.make 0 0 0.75f 100)]
+      (do
+        (Env.note-on! &e)
+        (ignore (Env.tick &e))
+        (ignore (Env.tick &e))
+        (ignore (Env.tick &e))   ; now in sustain at 0.75
+        (Env.note-off! &e)
+        (Test.assert-true state (Float.approx @(Env.release-from &e) 0.75f) "note-off captures level")))
+    ; note-off! sets stage to release
+    (let [e (Env.make 0 0 0.75f 100)]
+      (do
+        (Env.note-on! &e)
+        (ignore (Env.tick &e))
+        (ignore (Env.tick &e))
+        (ignore (Env.tick &e))
+        (Env.note-off! &e)
+        (Test.assert-equal state env-release @(Env.stage &e) "note-off sets release stage")))
+    ; first tick in release returns release-from
+    (let [e (Env.make 0 0 0.75f 100)]
+      (do
+        (Env.note-on! &e)
+        (ignore (Env.tick &e))
+        (ignore (Env.tick &e))
+        (ignore (Env.tick &e))
+        (Env.note-off! &e)
+        (Test.assert-true state (Float.approx (Env.tick &e) 0.75f) "release starts at release-from")))
+    ; ms-to-samps: 1000ms = sample-rate samples
+    (Test.assert-equal state sample-rate (ms-to-samps 1000) "1000ms = sample-rate samples")
+    ; Env.fill scales buffer by sustain level
+    (let [buf (the (Array Float) (Array.allocate buf-frames))
+          e   (Env.make 0 0 0.5f 1000)]
+      (do
+        (for [i 0 buf-frames] (aset! &buf i 1.0f))
+        (Env.note-on! &e)
+        (ignore (Env.tick &e))   ; through attack
+        (ignore (Env.tick &e))   ; through decay, now sustain
+        (Env.fill &buf &e)
+        (Test.assert-true state (Float.approx @(Array.unsafe-nth &buf 0) 0.5f)
+          "Env.fill scales buffer by sustain level")))
+    ; Env.fill zero input stays zero regardless of env level
+    (let [buf (the (Array Float) (Array.allocate buf-frames))
+          e   (Env.make 0 0 1.0f 1000)]
+      (do
+        (for [i 0 buf-frames] (aset! &buf i 0.0f))
+        (Env.note-on! &e)
+        (Env.fill &buf &e)
+        (Test.assert-equal state 0.0f @(Array.unsafe-nth &buf 0)
+          "Env.fill zero input stays zero"))))))

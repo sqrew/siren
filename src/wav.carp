@@ -1,0 +1,128 @@
+(load "constants.carp")
+
+; wav.carp — WAV sample playback
+; SamplePlayer owns a loaded (Array Float) of PCM samples and an internal
+; mono buffer. same tick/play!/stop! pattern as Channel — Mixer treats it
+; identically. use make for one-shot sounds, make-loop for music/ambience.
+;
+; to load samples from disk use Wav.load, defined in siren.carp (requires SDL).
+; (Wav.load "sfx/boom.wav") → (Array Float) ready to pass to SamplePlayer.make
+
+(deftype SamplePlayer
+  [samples    (Array Float)   ; PCM data from Wav.load, normalized -1..1
+   pos        Int             ; current playback position (sample index)
+   loop-start Int             ; sample index to jump back to at loop point
+   loop-end   Int             ; 0 = one-shot, else loop when pos reaches here
+   active     Bool            ; currently playing
+   buf        (Array Float)]) ; internal mono output buffer (buf-frames floats)
+
+(defmodule SamplePlayer
+
+  ; one-shot: plays once from start to end, then stops
+  (defn make [samples]
+    (SamplePlayer.init samples 0 0 0 false (Array.allocate buf-frames)))
+
+  ; looping: plays from 0, loops back to loop-start when pos hits loop-end
+  (defn make-loop [samples loop-start loop-end]
+    (SamplePlayer.init samples 0 loop-start loop-end false (Array.allocate buf-frames)))
+
+  ; start (or restart) playback from the beginning
+  (defn play! [sp]
+    (do
+      (SamplePlayer.set-pos! sp 0)
+      (SamplePlayer.set-active! sp true)))
+
+  ; stop playback — buf fills with zeros next tick
+  (defn stop! [sp]
+    (SamplePlayer.set-active! sp false))
+
+  ; fill internal buffer with the next buf-frames of audio.
+  ; inactive: fills with zeros.
+  ; active one-shot: reads samples until exhausted, then deactivates.
+  ; active loop: reads samples, wraps pos back to loop-start at loop-end.
+  (defn tick [sp]
+    (let-do [buf      (SamplePlayer.buf sp)
+             samples  (SamplePlayer.samples sp)
+             n        (Array.length samples)
+             loop-end @(SamplePlayer.loop-end sp)]
+      (if (not @(SamplePlayer.active sp))
+        (for [i 0 buf-frames] (aset! buf i 0.0f))
+        (for [i 0 buf-frames]
+          (let-do [pos @(SamplePlayer.pos sp)]
+            (if (>= pos n)
+              (do
+                (aset! buf i 0.0f)
+                (SamplePlayer.set-active! sp false))
+              (do
+                (aset! buf i @(Array.unsafe-nth samples pos))
+                (let [next-pos (+ pos 1)]
+                  (if (and (not (= loop-end 0)) (>= next-pos loop-end))
+                    (SamplePlayer.set-pos! sp @(SamplePlayer.loop-start sp))
+                    (SamplePlayer.set-pos! sp next-pos))))))))))
+
+)
+
+; --- Tests ---
+
+(defn wav-tests []
+  (ignore (with-test state
+    ; SamplePlayer.make: active starts false
+    (let [sp (SamplePlayer.make (the (Array Float) []))]
+      (Test.assert-equal state false @(SamplePlayer.active &sp)
+        "SamplePlayer.make active is false"))
+    ; SamplePlayer.make: pos starts at 0
+    (let [sp (SamplePlayer.make (the (Array Float) []))]
+      (Test.assert-equal state 0 @(SamplePlayer.pos &sp)
+        "SamplePlayer.make pos is 0"))
+    ; SamplePlayer.make-loop: loop-end stored
+    (let [samps (the (Array Float) [0.1f 0.2f 0.3f 0.4f 0.5f])
+          sp    (SamplePlayer.make-loop samps 1 3)]
+      (Test.assert-equal state 3 @(SamplePlayer.loop-end &sp)
+        "make-loop stores loop-end"))
+    ; play!: active becomes true
+    (let [sp (SamplePlayer.make (the (Array Float) [0.5f 0.5f]))]
+      (do
+        (SamplePlayer.play! &sp)
+        (Test.assert-equal state true @(SamplePlayer.active &sp)
+          "play! sets active")))
+    ; stop!: active becomes false
+    (let [sp (SamplePlayer.make (the (Array Float) [0.5f 0.5f]))]
+      (do
+        (SamplePlayer.play! &sp)
+        (SamplePlayer.stop! &sp)
+        (Test.assert-equal state false @(SamplePlayer.active &sp)
+          "stop! clears active")))
+    ; tick when inactive: buf is zero
+    (let [sp (SamplePlayer.make (the (Array Float) [0.5f 0.5f]))]
+      (do
+        (SamplePlayer.tick &sp)
+        (Test.assert-equal state 0.0f @(Array.unsafe-nth (SamplePlayer.buf &sp) 0)
+          "tick inactive gives zero buf")))
+    ; tick when active: reads samples into buf
+    (let [samps (the (Array Float) [0.7f 0.3f])
+          sp    (SamplePlayer.make samps)]
+      (do
+        (SamplePlayer.play! &sp)
+        (SamplePlayer.tick &sp)
+        (Test.assert-equal state 0.7f @(Array.unsafe-nth (SamplePlayer.buf &sp) 0)
+          "tick active reads sample into buf")))
+    ; tick exhausts one-shot: deactivates after last sample
+    (let [samps (the (Array Float) [0.1f])
+          sp    (SamplePlayer.make samps)]
+      (do
+        (SamplePlayer.play! &sp)
+        (SamplePlayer.tick &sp)
+        (Test.assert-equal state false @(SamplePlayer.active &sp)
+          "one-shot deactivates when samples exhausted")))
+    ; tick loop: looping produces repeating pattern in output buffer
+    ; samples=[0.1, 0.2], loop=[0,2) — buf alternates 0.1, 0.2, 0.1, 0.2...
+    ; buf[0] and buf[2] should be equal (both read sample[0] on each wrap)
+    (let [samps (the (Array Float) [0.1f 0.2f])
+          sp    (SamplePlayer.make-loop samps 0 2)]
+      (do
+        (SamplePlayer.play! &sp)
+        (SamplePlayer.tick &sp)
+        (Test.assert-true state
+          (Float.approx @(Array.unsafe-nth (SamplePlayer.buf &sp) 0)
+                        @(Array.unsafe-nth (SamplePlayer.buf &sp) 2))
+          "tick loop: output repeats correctly"))))))

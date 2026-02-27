@@ -1,40 +1,61 @@
 ; siren.carp — single entry point, load this file to get everything
+; for embedding in a game: call Siren.init, Siren.open, then Siren.tick
+; each frame. for standalone programs: call Siren.run (blocks forever).
+(load-and-use SDL)
 (load "constants.carp")
 (load "notes.carp")
 (load "SDLAudio.carp")
 (load "oscillators.carp")
 (load "envelope.carp")
+(load "filter.carp")
+(load "lfo.carp")
 (load "channel.carp")
 (load "sequencer.carp")
-(load "presets.carp")
+(load "bpm.carp")
+(load "wav.carp")
 
-(defn mono-to-stereo [mono stereo]
-  (for [i 0 buf-frames]
-    (let [s @(Array.unsafe-nth mono i)]
-      (do
-        (aset! stereo (* i 2)       s)
-        (aset! stereo (+ (* i 2) 1) s)))))
+; Wav.load — SDL-backed WAV file loader. defined here (not wav.carp) because
+; it requires SDL, which is an output concern. wav.carp stays pure (SamplePlayer only).
+(register load-samples-raw (Fn [(Ptr CChar)] (Array Float)) "siren_load_wav")
+(defmodule Wav
+  ; load a mono 16-bit 44100 Hz WAV file into memory as normalized f32 samples.
+  ; returns empty array on error or format mismatch — check (Array.length &samples).
+  (defn load [path]
+    (load-samples-raw (String.cstr path))))
+
+(load "presets.carp")
+(load "mixer.carp")
 
 (defmodule Siren
 
-  ; initialize audio hardware — call once before run
+  ; initialize SDL audio subsystem
   (defn init []
     (SDL.init SDL.INIT_EVERYTHING))
 
-  ; run the engine loop with a single channel and sequencer
-  ; blocks forever — put this at the end of main
-  (defn run [ch seq]
-    (let-do [dev    (SDLAudio.open sample-rate channels buf-frames)
-             stereo (Array.allocate buf-size)]
+  ; open audio device and start playback — returns Int device id
+  (defn open []
+    (let-do [dev (SDLAudio.open sample-rate channels buf-frames)]
       (SDLAudio.play dev)
+      dev))
+
+  ; one frame of audio — call this from your game loop each frame.
+  ; buffers ahead of the audio device to prevent underruns: SDL pulls from
+  ; its queue asynchronously, and if it runs dry between game frames we get
+  ; silence/pops. keeping ~4 buffers queued (queue-target) absorbs frame
+  ; time jitter. queueing exactly one buffer per call would starve the
+  ; device on any frame that runs long.
+  (defn tick [dev mix]
+    (while (< (SDLAudio.queued-bytes @dev) queue-target)
+      (do
+        (Mixer.tick mix)
+        (ignore (SDLAudio.queue @dev (Array.unsafe-raw (Mixer.stereo mix)) buf-size)))))
+
+  ; standalone run loop — blocks forever, use for non-game programs
+  (defn run [mix]
+    (let-do [dev (Siren.open)]
       (while true
         (do
-          (while (< (SDLAudio.queued-bytes dev) queue-target)
-            (do
-              (Seq.tick seq ch)
-              (Channel.tick ch)
-              (mono-to-stereo (Channel.buf ch) &stereo)
-              (ignore (SDLAudio.queue dev (Array.unsafe-raw &stereo) buf-size))))
+          (Siren.tick &dev mix)
           (SDL.delay 1)))))
 
 )

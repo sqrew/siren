@@ -1,0 +1,232 @@
+; basic.carp — comprehensive Siren example
+; demonstrates all major features in one cohesive piece of music:
+;   - multi-channel mixer (melody, bass, drums)
+;   - stereo panning
+;   - LFO vibrato on the melody
+;   - fire-and-forget SFX
+;   - WAV sample player setup
+;   - low-pass filter on the bass
+;   - standalone run loop + game-loop embedding pattern
+;
+; to run:  carp -x examples/basic.carp
+; to hear: make sure SDL2 is installed and speakers are on
+
+; ---------------------------------------------------------------------------
+; 1. load siren — this single load pulls in everything:
+;    constants, notes, oscillators, envelope, filter, lfo, channel,
+;    sequencer, bpm, wav, presets, mixer, and the Siren runtime.
+; ---------------------------------------------------------------------------
+
+(load "../src/siren.carp")
+
+; ---------------------------------------------------------------------------
+; 2. set the tempo — define duration shortcuts with beats->ms.
+;    beats->ms converts BPM + beat count to milliseconds:
+;      1.0 = quarter note, 2.0 = half, 4.0 = whole, 0.5 = eighth, 0.25 = sixteenth
+;
+;    tip: inside a function body you can use (defbpm 120) instead, which
+;    automatically binds whole/half/quarter/eighth/sixteenth/dotted-* for you.
+;    at top level, define your own shortcuts like this:
+; ---------------------------------------------------------------------------
+
+(def q (beats->ms 120 1.0f))    ; quarter note = 500ms
+(def h (beats->ms 120 2.0f))    ; half note   = 1000ms
+(def w (beats->ms 120 4.0f))    ; whole note  = 2000ms
+(def e (beats->ms 120 0.5f))    ; eighth note =  250ms
+(def s (beats->ms 120 0.25f))   ; sixteenth   =  125ms
+
+; ---------------------------------------------------------------------------
+; 3. define the music — three voices that work together in C major
+;
+;    the melody is a simple singable phrase using a triangle-wave lead.
+;    the bass is a slow-moving root/fifth pattern on a saw wave.
+;    the drums are noise hits on the beat with rests for groove.
+; ---------------------------------------------------------------------------
+
+; melody — a looping phrase in C major
+; uses lead-triangle preset: medium attack, full sustain, singing tone
+; the triangle wave gives it a warm, flute-like quality
+(def melody-notes
+  [(note note-e4  q)               ; pick up
+   (note note-g4  q)
+   (note note-a4  e)               ; quick ornament
+   (note note-g4  e)
+   (note note-e4  h)               ; hold
+   (Note.rest     q)               ; breathe
+
+   (note note-d4  q)
+   (note note-e4  q)
+   (note note-g4  h)               ; resolve up
+   (note note-e4  q)
+   (Note.rest     q)
+
+   (note note-c4  q)               ; descend
+   (note note-d4  q)
+   (note note-e4  q)
+   (note note-d4  q)
+   (note note-c4  w)])             ; home
+
+; bass — root and fifth, slow and steady
+; uses bass-saw preset: punchy attack, short decay, no sustain
+; the saw wave gives harmonic richness that grounds the melody
+(def bass-notes
+  [(note note-c2  h)               ; root
+   (note note-c2  h)               ; root again
+   (note note-g2  h)               ; fifth
+   (note note-c2  h)               ; back to root
+
+   (note note-a2  h)               ; relative minor root
+   (note note-e2  h)               ; its fifth
+   (note note-f2  h)               ; IV chord
+   (note note-g2  h)])             ; V chord — tension back to I
+
+; drums — noise hits for rhythm, rests for groove
+; uses perc-noise preset: instant attack, very short decay, drum-like
+; the noise oscillator makes it sound like a closed hi-hat / snare
+; freq controls noise pitch: higher = brighter, lower = thumpier
+(def drum-notes
+  [(note 200.0f   s)               ; hit — downbeat
+   (Note.rest     s)
+   (note 150.0f   s)               ; hit — lighter
+   (Note.rest     s)
+   (note 200.0f   s)               ; hit — backbeat
+   (note 150.0f   s)               ; hit
+   (Note.rest     s)
+   (note 100.0f   s)])             ; ghost note — quieter, lower freq
+
+; ---------------------------------------------------------------------------
+; 4. main — wire everything together and play
+; ---------------------------------------------------------------------------
+
+(defn main []
+  (let-do [; create a mixer with 3 named slots:
+           ;   slot 0 = melody
+           ;   slot 1 = bass
+           ;   slot 2 = drums
+           ; Mixer.make allocates channels, sequencers, pans, the SFX pool
+           ; (4 round-robin channels), and the sample player pool (4 slots).
+           ; everything starts silent — we configure each slot below.
+           mix (Mixer.make 3)]
+
+    ; --- slot 0: melody (lead-triangle) ---
+    ; lead-triangle: triangle oscillator, medium attack (20ms), high sustain
+    ; (0.8), long release (150ms). gain 0.5 keeps it present but not harsh.
+    (Mixer.set-channel! &mix 0 (lead-triangle 0.5f))
+    (Mixer.set-seq!     &mix 0 (Seq.make @&melody-notes))
+
+    ; pan the melody slightly right — gives stereo width when combined with
+    ; the bass panned slightly left. pan range is -1.0 (hard left) to
+    ; 1.0 (hard right), 0.0 is center. subtle offsets (0.2-0.3) sound
+    ; natural; hard pans are dramatic but tiring.
+    (Mixer.set-pan! &mix 0 0.3f)
+
+    ; add vibrato to the melody channel — LFO modulates pitch by +/-8 hz
+    ; at 5 hz. this is classic vibrato: a gentle wobble that makes sustained
+    ; notes feel alive instead of static. the LFO runs a sine wave internally,
+    ; updating once per audio buffer (~86 times/sec).
+    ; for tremolo (volume wobble) instead, use Channel.set-lfo-amp!
+    (Channel.set-lfo-freq! (Array.unsafe-nth (Mixer.channels &mix) 0) 5.0f 8.0f)
+
+    ; --- slot 1: bass (bass-saw) ---
+    ; bass-saw: saw oscillator, instant attack (3ms), short decay (40ms),
+    ; no sustain, quick release (60ms). gain 0.4 — bass carries energy,
+    ; but too loud and it masks the melody.
+    (Mixer.set-channel! &mix 1 (bass-saw 0.4f))
+    (Mixer.set-seq!     &mix 1 (Seq.make @&bass-notes))
+
+    ; pan bass slightly left to complement the melody on the right
+    (Mixer.set-pan! &mix 1 -0.2f)
+
+    ; add a low-pass filter to the bass channel — cuts frequencies above
+    ; 800 hz, removing harshness from the saw wave while keeping the
+    ; fundamental and low harmonics. q=0.707 is Butterworth (maximally flat
+    ; passband, no resonant peak). higher q values add a resonant bump at
+    ; the cutoff frequency — try 2.0 for an acid bass sound.
+    (Channel.set-lp! (Array.unsafe-nth (Mixer.channels &mix) 1) 800.0f 0.707f)
+
+    ; --- slot 2: drums (perc-noise) ---
+    ; perc-noise: noise oscillator, instant attack (1ms), very short decay
+    ; (30ms), no sustain, instant release (20ms). gain 0.3 — drums should
+    ; be felt in the rhythm, not dominate the mix.
+    (Mixer.set-channel! &mix 2 (perc-noise 0.3f))
+    (Mixer.set-seq!     &mix 2 (Seq.make @&drum-notes))
+    ; drums stay centered (pan defaults to 0.0) — anchors the stereo image
+
+    ; --- SFX: fire-and-forget one-shot sound ---
+    ; sfx! plays a sound immediately on the SFX pool (4 dedicated channels,
+    ; round-robin). the channel you pass defines the instrument shape —
+    ; play! triggers attack, then immediate release!, so the sound's length
+    ; is entirely controlled by the ADSR envelope. use sustain=0.0 presets
+    ; (pluck, perc, bass) for clean one-shots.
+    ;
+    ; here we fire a startup "blip" — a high pluck at C6. in a game you'd
+    ; call sfx! on events: coin pickup, jump, hit, menu select, etc.
+    (Mixer.sfx! &mix note-c6 (pluck-square 0.6f))
+
+    ; --- WAV sample player ---
+    ; Siren can also play raw WAV files (mono, 16-bit, 44100 Hz).
+    ; Wav.load reads the file via SDL and returns normalized f32 samples.
+    ; SamplePlayer wraps those samples with play/stop/loop controls.
+    ; Mixer has 4 sample player slots — install with set-sample-player!,
+    ; trigger with play-sample!/stop-sample!.
+    ;
+    ; one-shot (plays once, stops):
+    ;   (SamplePlayer.make samples)
+    ;
+    ; looping (plays from 0, loops between loop-start and loop-end):
+    ;   (SamplePlayer.make-loop samples start end)
+    ;
+    ; uncomment the lines below with a real WAV file path to hear it:
+    ;
+    ; (let [kick-samples (Wav.load "assets/kick.wav")]
+    ;   (when (> (Array.length &kick-samples) 0)
+    ;     (do
+    ;       (Mixer.set-sample-player! &mix 0 (SamplePlayer.make kick-samples))
+    ;       (Mixer.set-sample-pan!    &mix 0 -0.5f)  ; pan the kick left
+    ;       (Mixer.play-sample!       &mix 0))))      ; trigger it once now
+    ;
+    ; for a looping ambient pad from WAV:
+    ; (let [pad-samples (Wav.load "assets/ambient-pad.wav")]
+    ;   (when (> (Array.length &pad-samples) 0)
+    ;     (do
+    ;       (Mixer.set-sample-player! &mix 1
+    ;         (SamplePlayer.make-loop pad-samples 0 (Array.length &pad-samples)))
+    ;       (Mixer.play-sample! &mix 1))))
+
+    ; --- start the engine ---
+    ; Siren.init initializes SDL's audio subsystem.
+    ; Siren.run opens the audio device and enters a blocking loop that
+    ; calls Mixer.tick + SDL queue forever. the music plays until you
+    ; kill the process (ctrl-c).
+    (Siren.init)
+    (Siren.run &mix)))
+
+; ---------------------------------------------------------------------------
+; game-loop embedding pattern
+; ---------------------------------------------------------------------------
+; if you're using Siren inside a game (with your own main loop), don't use
+; Siren.run — it blocks forever. instead, call Siren.tick each frame:
+;
+; (defn game-main []
+;   (let-do [mix (Mixer.make 3)
+;            _   (Siren.init)
+;            dev (Siren.open)]
+;     ; ... configure channels, seqs, etc. same as above ...
+;     ; your game loop:
+;     (while game-running
+;       (do
+;         ; update game state, handle input, render graphics, etc.
+;         ; then pump audio — tick queues enough buffers to stay ahead
+;         ; of the audio device. it's cheap (~0.1ms) and safe to call
+;         ; every frame at 30/60/120 fps.
+;         (Siren.tick &dev &mix)))))
+;
+; you can also trigger SFX from game events mid-loop:
+;   (when player-jumped  (Mixer.sfx! &mix note-c5 (pluck-square 0.5f)))
+;   (when enemy-hit      (Mixer.sfx! &mix note-a3 (perc-noise 0.4f)))
+;   (when coin-collected (Mixer.sfx! &mix note-e6 (pluck-square 0.6f)))
+;
+; tempo changes mid-game (e.g. boss fight speeds up):
+;   (def bq (beats->ms 160 1.0f))
+;   (def boss-theme [(note note-e3 bq) ...])
+;   (Mixer.set-seq! &mix 0 (Seq.make boss-theme))

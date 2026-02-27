@@ -55,12 +55,25 @@ All stages: pure transforms on float arrays. Linear ownership. Data flows one di
 - [x] loops continuously, monophonic
 
 ** DONE Channel (src/channel.carp)
-- [x] owns complete voice: waveform, Env, phase, freq, gain, mono buf
+- [x] owns complete voice: waveform, Env, Filter, phase, freq, gain, mono buf
 - [x] Channel.make — define instrument once (waveform, ADSR, gain)
 - [x] Channel.play!/release! — trigger note events
-- [x] Channel.tick — full pipeline in one call: osc → envelope → gain
+- [x] Channel.tick — full pipeline in one call: osc → envelope → filter → gain
 - [x] waveform dispatch via osc-sine/osc-square/osc-saw/osc-triangle/osc-noise constants
-- [x] adding future stages (filter, LFO, effects) is one line inside tick
+- [x] Channel.set-lp!/set-hp!/set-bp! — configure and enable filter in one call
+- [x] Channel.clear-filter! — bypass filter
+- [x] filter-on Bool flag — no overhead when filter is off
+
+** DONE Filters (src/filter.carp)
+- [x] biquad filter — one struct, three factory functions, one tick
+- [x] Filter.make-lp — low-pass (warm/dark), freq-hz + q params
+- [x] Filter.make-hp — high-pass (thin/bright), freq-hz + q params
+- [x] Filter.make-bp — band-pass (nasal/resonant), freq-hz + q params
+- [x] q: 0.707 = Butterworth (maximally flat), >1.0 = resonant peak
+- [x] Filter.fill — apply in-place to mono buffer
+- [x] delay lines (x1,x2,y1,y2) stored in Filter struct — stateful per-channel
+- [x] coefficients from Audio EQ Cookbook (RBJ)
+- [ ] needs audio testing — math correct, sound unverified (filter coefficients pass unit tests)
 
 ** DONE Core / Pipeline (src/main.carp)
 - [x] mono-to-stereo interleave
@@ -68,8 +81,10 @@ All stages: pure transforms on float arrays. Linear ownership. Data flows one di
 - [x] CONFIRMED WORKING — melody plays
 
 ** DONE Named Notes (src/notes.carp)
-- [x] all 88 piano keys A0-C8 as integer hz constants
+- [x] all 88 piano keys A0-C8 as float hz constants
 - [x] sharps use 's' suffix (note-cs4, note-fs4, etc.)
+- [x] precise equal-temperament values — freq = 440 * 2^((n-49)/12), 2 decimal places
+  - was rounded integers (note-cs4 277.0f), now accurate (277.18f) — audible fix for chords
 
 ** DONE Presets + Ergonomic Macros (src/presets.carp)
 - [x] preset-pluck/pad/bass/lead/perc — ADSR baked in, just waveform + gain
@@ -78,34 +93,67 @@ All stages: pure transforms on float arrays. Linear ownership. Data flows one di
 - [x] defsong macro — variadic Note array builder
 - [x] user-facing API: (pluck-square 0.4f), (note note-c4 250)
 
-** Filters (src/filters.carp)
-- [ ] biquad filter — one implementation, three modes
-- [ ] low-pass (warm/dark)
-- [ ] high-pass (thin/bright)
-- [ ] band-pass (nasal/resonant)
-- [ ] cutoff + resonance (Q) parameters
+** DONE Tests (test/run.carp)
+- [x] inline tests — MODULE-tests function at bottom of each source file
+- [x] run-suite macro — prints module name, calls test fn, one line per suite in runner
+- [x] filter: 14 tests (coefficient math, delay line init, tick behavior, signal attenuation)
+- [x] envelope: 13 tests (ADSR state machine, note-on/off, ms-to-samps, fill scales buffer)
+- [x] oscillators: 8 tests (phase-deterministic sample values, noise passthrough)
+- [x] channel: 17 tests (init state, play!/release!, filter control, tick edge cases, signal output)
+- [x] sequencer: 14 tests (Note/Seq construction, tick state transitions)
+- [x] bpm: 9 tests (beats->ms at various tempos and note lengths)
+- [x] mixer: 13 tests (slots, pan, SFX, master vol, sfx-at! pan)
+- [x] 103 tests total, all passing
+- [x] each module loads its own deps — testable in isolation without SDL
+
+** DONE WAV Playback (src/wav.carp)
+- [x] SamplePlayer deftype — (Array Float) PCM data, pos, loop-start/loop-end, active, buf
+- [x] SamplePlayer.make — one-shot (plays once, deactivates at end)
+- [x] SamplePlayer.make-loop — looping (wraps pos to loop-start when loop-end is reached)
+- [x] SamplePlayer.play!/stop! — start/stop playback
+- [x] SamplePlayer.tick — fills internal mono buf, advances pos, handles loop/one-shot end
+- [x] Wav.load path → (Array Float) — SDL_LoadWAV wrapper in siren.carp, Sint16→Float
+  - supported: mono, AUDIO_S16LSB, 44100 Hz — returns empty array on any mismatch
+  - Carp owns the Array, freed automatically on drop
+- [x] Mixer owns 4 SamplePlayer slots — set-sample-player!/set-sample-pan!/play-sample!/stop-sample!
+- [x] 9 wav tests
+- transforms Siren from chiptune library into general game audio engine
 
 ** Effects (src/effects.carp)
 - [ ] delay/echo — feedback delay line, delay-ms + feedback parameters
 - [ ] simple reverb — Schroeder comb+allpass network
 - [ ] chorus/flanger — modulated delay line, subtle width/movement
 
-** LFO (src/lfo.carp)
-- [ ] oscillator at control rate (not audio rate)
-- [ ] routable to: pitch, filter cutoff, volume
-- [ ] rate (hz) + depth parameters
-- [ ] waveform: sine or triangle (slow oscillation, no aliasing concern)
+** DONE LFO (src/lfo.carp)
+- [x] Lfo deftype — rate (hz), depth, phase state
+- [x] sine waveform — smooth, correct for vibrato and tremolo
+- [x] per-buffer tick resolution (~86 updates/sec) — chiptune-accurate
+- [x] lfo-freq target — pitch vibrato, adds ±depth hz to Channel.freq
+- [x] lfo-amp target — tremolo, scales post-envelope amplitude by (1 ± depth)
+- [x] Channel.set-lfo-freq!/set-lfo-amp!/clear-lfo! — same pattern as filter
+- [x] off by default — zero overhead when unused
+- [x] 6 lfo tests + 3 channel tests
 
-** Mixer (src/mixer.carp)
-- [ ] N mono channels (target: 8)
-- [ ] per-channel gain + pan
-- [ ] stereo sum to output buffer
-- [ ] enables polyphony and layering (melody + bass + drums)
+** DONE Mixer (src/mixer.carp)
+- [x] owns N named Channels + N Seqs (user-configured slots)
+- [x] per-channel pan (Float -1.0 left, 0.0 center, 1.0 right)
+- [x] stereo sum with pan applied at output — real stereo, not mono duplication
+- [x] clamp at output — prevents distortion when summing N channels
+- [x] SFX pool: 4 Channels managed round-robin internally
+- [x] Mixer.sfx! mix freq ch — fire-and-forget, center pan
+- [x] Mixer.sfx-at! mix freq pan ch — fire-and-forget with explicit pan (positional SFX)
+- [x] master-vol Float — scales entire output before clamp (fade in/out, scene transitions)
+- [x] Mixer.set-master-vol! — expose auto-generated setter, 1.0 default
+- [x] SFX duration controlled by ADSR: play! + immediate release! = attack→release
+- [x] Siren.tick takes Mixer instead of ch + seq
+- [x] enables ceiling: melody + bass + drums + pad + sfx simultaneously
+- [x] 13 tests
 
-** Quality of Life (src/main.carp or src/util.carp)
-- [ ] BPM-synced sequencer (tempo in BPM, note lengths as fractions)
+** DONE Quality of Life (src/bpm.carp)
+- [x] beats->ms bpm beats → Int — core BPM conversion (1.0=quarter, 2.0=half, 4.0=whole, 0.5=eighth)
+- [x] defbpm macro — defines whole/half/quarter/eighth/sixteenth/dotted-*/triplet-* inside function bodies
+- [x] named note frequencies — all 88 keys, precise ET values (see notes.carp)
 - [ ] chord/arpeggio helpers
-- [ ] named note frequencies (note-c4, note-g4, etc. — avoid magic numbers)
 
 * Ceiling
 
@@ -114,7 +162,7 @@ This is done when you can build a full 2D game's audio with it:
 - Bass line
 - Percussion (noise + short envelope)
 - Ambient pad (long attack/release, maybe with chorus)
-- Sound effects (one-shot envelopes on various waveforms)
+- Sound effects (one-shot envelopes on various waveforms, or .wav samples)
 
 Positional audio (pan by X, attenuate by distance) deferred — no 3D in Carp yet.
 Revisit when WGPU render pipeline lands and 3D becomes possible.
@@ -128,6 +176,9 @@ Revisit when WGPU render pipeline lands and 3D becomes possible.
 - All arithmetic strictly binary — (+ a b c) fails, must nest
 - Array.unsafe-raw needed to get Ptr without taking ownership
 - Array.fill! doesn't exist — zero a buffer with a for loop
+- Array.allocate is generic — needs (the (Array Float) ...) annotation when type can't be inferred
+- with-test returns Int not () — wrap in ignore inside test functions, not at call sites
+- String literals are already (Ref String) — don't wrap in (ref ...) in macros, it double-refs
 
 * Constants
 - Sample rate: 44100

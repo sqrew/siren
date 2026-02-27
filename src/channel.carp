@@ -1,8 +1,13 @@
-; channel.carp — a complete voice: oscillator + envelope + future stages
+(load "lfo.carp")
+(load "filter.carp")
+(load "envelope.carp")
+(load "oscillators.carp")
+
+; channel.carp — a complete voice: oscillator + envelope + filter
 ; define an instrument once with make, trigger it with play!/release!
 ; tick fills the internal mono buffer — call once per audio buffer
 
-; waveform constants
+; waveform constants — pass one of these to Channel.make
 (def osc-sine     0)
 (def osc-square   1)
 (def osc-saw      2)
@@ -10,23 +15,32 @@
 (def osc-noise    4)
 
 (deftype Channel
-  [waveform Int          ; which oscillator to use
-   env      Env          ; amplitude envelope
-   phase    Float        ; oscillator phase state
-   freq     Int          ; current frequency in hz
-   gain     Float        ; output gain 0..1
-   buf      (Array Float)]) ; internal mono buffer
+  [waveform   Int           ; which oscillator to use
+   env        Env           ; amplitude envelope
+   phase      Float         ; oscillator phase state
+   freq       Float         ; current frequency in hz
+   gain       Float         ; output gain 0..1
+   buf        (Array Float) ; internal mono buffer
+   filter     Filter        ; biquad filter (LP/HP/BP)
+   filter-on  Bool          ; whether to apply filter each tick
+   lfo        Lfo           ; modulation oscillator
+   lfo-target Int])         ; lfo-off / lfo-freq / lfo-amp
 
 (defmodule Channel
 
   ; define an instrument — waveform, ADSR shape, output gain
+  ; filter is off by default — enable with set-lp!/set-hp!/set-bp!
   (defn make [waveform attack-ms decay-ms sustain release-ms gain]
     (Channel.init waveform
                   (Env.make attack-ms decay-ms sustain release-ms)
                   0.0f
-                  0
+                  0.0f
                   gain
-                  (Array.allocate buf-frames)))
+                  (Array.allocate buf-frames)
+                  (Filter.make-lp 20000.0f 0.707f)
+                  false
+                  (Lfo.make 0.0f 0.0f)
+                  lfo-off))
 
   ; trigger a note at the given frequency
   (defn play! [ch freq]
@@ -38,24 +52,163 @@
   (defn release! [ch]
     (Env.note-off! (Channel.env ch)))
 
+  ; configure and enable low-pass filter
+  (defn set-lp! [ch freq q]
+    (do (Channel.set-filter! ch (Filter.make-lp freq q))
+        (Channel.set-filter-on! ch true)))
+
+  ; configure and enable high-pass filter
+  (defn set-hp! [ch freq q]
+    (do (Channel.set-filter! ch (Filter.make-hp freq q))
+        (Channel.set-filter-on! ch true)))
+
+  ; configure and enable band-pass filter
+  (defn set-bp! [ch freq q]
+    (do (Channel.set-filter! ch (Filter.make-bp freq q))
+        (Channel.set-filter-on! ch true)))
+
+  ; disable filter — oscillator passes through unfiltered
+  (defn clear-filter! [ch]
+    (Channel.set-filter-on! ch false))
+
+  ; enable pitch vibrato — lfo oscillates freq by ±depth hz
+  (defn set-lfo-freq! [ch rate depth]
+    (do (Channel.set-lfo! ch (Lfo.make rate depth))
+        (Channel.set-lfo-target! ch lfo-freq)))
+
+  ; enable tremolo — lfo scales post-envelope amplitude by (1 ± depth)
+  ; depth 0..1: 0 = no effect, 1 = full silence at trough
+  (defn set-lfo-amp! [ch rate depth]
+    (do (Channel.set-lfo! ch (Lfo.make rate depth))
+        (Channel.set-lfo-target! ch lfo-amp)))
+
+  ; disable lfo — channel plays unmodulated
+  (defn clear-lfo! [ch]
+    (Channel.set-lfo-target! ch lfo-off))
+
   ; fill internal buffer — call every audio buffer regardless of note state
+
   (defn tick [ch]
-    (let-do [wf    @(Channel.waveform ch)
-             freq  @(Channel.freq ch)
-             buf   (Channel.buf ch)
-             phase @(Channel.phase ch)]
-      (if (= freq 0)
+    (let-do [wf     @(Channel.waveform ch)
+             freq   @(Channel.freq ch)
+             buf    (Channel.buf ch)
+             phase  @(Channel.phase ch)
+             target @(Channel.lfo-target ch)
+             mod    (if (= target lfo-off) 0.0f (Lfo.tick (Channel.lfo ch)))]
+      (if (= freq 0.0f)
         (for [i 0 buf-frames] (aset! buf i 0.0f))
-        (let [next-phase
-              (if (= wf osc-sine)     (Osc.fill-sine     buf freq phase)
-              (if (= wf osc-square)   (Osc.fill-square   buf freq phase)
-              (if (= wf osc-saw)      (Osc.fill-saw      buf freq phase)
-              (if (= wf osc-triangle) (Osc.fill-triangle buf freq phase)
-                                      (Osc.fill-noise    buf freq phase)))))]
+        (let [; lfo-freq: add mod to base freq for vibrato
+              eff-freq  (if (= target lfo-freq) (+ freq mod) freq)
+              ; osc-sine=0 osc-square=1 osc-saw=2 osc-triangle=3 osc-noise=4
+              ; unknown waveform falls through to noise
+              next-phase
+              (if (= wf osc-sine)     (Osc.fill-sine     buf eff-freq phase)
+              (if (= wf osc-square)   (Osc.fill-square   buf eff-freq phase)
+              (if (= wf osc-saw)      (Osc.fill-saw      buf eff-freq phase)
+              (if (= wf osc-triangle) (Osc.fill-triangle buf eff-freq phase)
+                                      (Osc.fill-noise    buf eff-freq phase)))))]
           (Channel.set-phase! ch next-phase)))
       (Env.fill buf (Channel.env ch))
-      ; apply gain
+      ; lfo-amp: scale post-envelope amplitude by (1 + mod), floor at 0
+      (when (= target lfo-amp)
+        (let-do [scale (if (> (+ 1.0f mod) 0.0f) (+ 1.0f mod) 0.0f)]
+          (for [i 0 buf-frames]
+            (aset! buf i (* @(Array.unsafe-nth buf i) scale)))))
+      (when @(Channel.filter-on ch)
+        (Filter.fill buf (Channel.filter ch)))
       (for [i 0 buf-frames]
         (aset! buf i (* @(Array.unsafe-nth buf i) @(Channel.gain ch))))))
 
 )
+
+; --- Tests ---
+
+(defn channel-tests []
+  (ignore (with-test state
+    ; make: freq starts at 0.0
+    (let [ch (Channel.make osc-sine 10 10 0.5f 10 0.5f)]
+      (Test.assert-equal state 0.0f @(Channel.freq &ch) "make freq is 0"))
+    ; make: phase starts at 0.0
+    (let [ch (Channel.make osc-sine 10 10 0.5f 10 0.5f)]
+      (Test.assert-equal state 0.0f @(Channel.phase &ch) "make phase is 0.0"))
+    ; make: filter-on starts false
+    (let [ch (Channel.make osc-sine 10 10 0.5f 10 0.5f)]
+      (Test.assert-equal state false @(Channel.filter-on &ch) "make filter-on is false"))
+    ; make: gain stored correctly
+    (let [ch (Channel.make osc-sine 10 10 0.5f 10 0.7f)]
+      (Test.assert-equal state 0.7f @(Channel.gain &ch) "make stores gain"))
+    ; play!: updates freq
+    (let [ch (Channel.make osc-sine 10 10 0.5f 10 0.5f)]
+      (do
+        (Channel.play! &ch 440.0f)
+        (Test.assert-equal state 440.0f @(Channel.freq &ch) "play! sets freq")))
+    ; play!: env goes to attack stage
+    (let [ch (Channel.make osc-sine 10 10 0.5f 10 0.5f)]
+      (do
+        (Channel.play! &ch 440.0f)
+        (Test.assert-equal state env-attack @(Env.stage (Channel.env &ch)) "play! triggers env attack")))
+    ; release!: env goes to release stage
+    (let [ch (Channel.make osc-sine 10 10 0.5f 10 0.5f)]
+      (do
+        (Channel.play! &ch 440.0f)
+        (Channel.release! &ch)
+        (Test.assert-equal state env-release @(Env.stage (Channel.env &ch)) "release! triggers env release")))
+    ; set-lp!: filter-on becomes true
+    (let [ch (Channel.make osc-sine 10 10 0.5f 10 0.5f)]
+      (do
+        (Channel.set-lp! &ch 1000.0f 0.707f)
+        (Test.assert-equal state true @(Channel.filter-on &ch) "set-lp! enables filter")))
+    ; set-hp!: filter-on becomes true
+    (let [ch (Channel.make osc-sine 10 10 0.5f 10 0.5f)]
+      (do
+        (Channel.set-hp! &ch 1000.0f 0.707f)
+        (Test.assert-equal state true @(Channel.filter-on &ch) "set-hp! enables filter")))
+    ; set-bp!: filter-on becomes true
+    (let [ch (Channel.make osc-sine 10 10 0.5f 10 0.5f)]
+      (do
+        (Channel.set-bp! &ch 1000.0f 1.0f)
+        (Test.assert-equal state true @(Channel.filter-on &ch) "set-bp! enables filter")))
+    ; clear-filter!: filter-on becomes false
+    (let [ch (Channel.make osc-sine 10 10 0.5f 10 0.5f)]
+      (do
+        (Channel.set-lp! &ch 1000.0f 0.707f)
+        (Channel.clear-filter! &ch)
+        (Test.assert-equal state false @(Channel.filter-on &ch) "clear-filter! disables filter")))
+    ; tick with freq=0: buffer is all zeros
+    (let [ch (Channel.make osc-sine 10 10 0.5f 10 0.5f)]
+      (do
+        (Channel.tick &ch)
+        (Test.assert-equal state 0.0f @(Array.unsafe-nth (Channel.buf &ch) 0) "tick freq=0 gives zero buf")))
+    ; tick with gain=0: buffer is all zeros regardless of signal
+    (let [ch (Channel.make osc-sine 10 10 0.5f 10 0.0f)]
+      (do
+        (Channel.play! &ch 440.0f)
+        (Channel.tick &ch)
+        (Test.assert-equal state 0.0f @(Array.unsafe-nth (Channel.buf &ch) 0) "tick gain=0 gives zero buf")))
+    ; tick with osc-square, freq>0, gain=1, sustain=1 produces 1.0 at sample[0]
+    ; square at phase=0 → 1.0, 0ms attack/decay so env=1.0, gain=1.0 → output=1.0
+    (let [ch (Channel.make osc-square 0 0 1.0f 0 1.0f)]
+      (do
+        (Channel.play! &ch 440.0f)
+        (Channel.tick &ch)
+        (Test.assert-equal state 1.0f @(Array.unsafe-nth (Channel.buf &ch) 0)
+          "tick with signal produces non-zero output")))
+    ; set-lfo-freq!: lfo-target becomes lfo-freq
+    (let [ch (Channel.make osc-sine 10 10 0.5f 10 0.5f)]
+      (do
+        (Channel.set-lfo-freq! &ch 5.0f 10.0f)
+        (Test.assert-equal state lfo-freq @(Channel.lfo-target &ch)
+          "set-lfo-freq! sets target")))
+    ; set-lfo-amp!: lfo-target becomes lfo-amp
+    (let [ch (Channel.make osc-sine 10 10 0.5f 10 0.5f)]
+      (do
+        (Channel.set-lfo-amp! &ch 3.0f 0.5f)
+        (Test.assert-equal state lfo-amp @(Channel.lfo-target &ch)
+          "set-lfo-amp! sets target")))
+    ; clear-lfo!: lfo-target becomes lfo-off
+    (let [ch (Channel.make osc-sine 10 10 0.5f 10 0.5f)]
+      (do
+        (Channel.set-lfo-freq! &ch 5.0f 10.0f)
+        (Channel.clear-lfo! &ch)
+        (Test.assert-equal state lfo-off @(Channel.lfo-target &ch)
+          "clear-lfo! disables lfo"))))))

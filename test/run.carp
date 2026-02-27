@@ -1,0 +1,27 @@
+(load "Test.carp")
+(load "../src/filter.carp")
+(load "../src/envelope.carp")
+(load "../src/oscillators.carp")
+(load "../src/channel.carp")
+(load "../src/lfo.carp")
+(load "../src/sequencer.carp")
+(load "../src/bpm.carp")
+(load "../src/wav.carp")
+(load "../src/mixer.carp")
+
+(defmacro run-suite [name]
+  (list 'do
+    (list 'IO.println (str "--- " name " ---"))
+    (list name)))
+
+(defn main []
+  (do
+    (run-suite lfo-tests)
+    (run-suite filter-tests)
+    (run-suite envelope-tests)
+    (run-suite oscillator-tests)
+    (run-suite channel-tests)
+    (run-suite sequencer-tests)
+    (run-suite bpm-tests)
+    (run-suite wav-tests)
+    (run-suite mixer-tests)))

@@ -1,0 +1,3 @@
+; siren.carp — root entry point for Carp's git-loader
+; (load "siren/siren.carp") or (load "url@tag" "siren.carp")
+(load "src/siren.carp")

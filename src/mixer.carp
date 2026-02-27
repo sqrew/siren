@@ -1,0 +1,275 @@
+(load "channel.carp")
+(load "sequencer.carp")
+(load "wav.carp")
+
+; mixer.carp — polyphonic mixer with stereo output
+; owns N named voice slots (Channel + Seq), a small SFX pool,
+; and a fixed WAV sample player pool.
+; ticks all voices, sums to interleaved stereo with pan, clamps output
+;
+; named slots: configure with set-channel!/set-seq!/set-pan!
+; SFX pool: 4 channels, round-robin, fire-and-forget via sfx!
+; sample pool: 4 SamplePlayers, configure with set-sample-player!,
+;   trigger with play-sample!/stop-sample!
+
+(def sfx-pool-size    4)
+(def sample-pool-size 4)
+
+(deftype Mixer
+  [channels        (Array Channel)        ; named voice slots
+   seqs            (Array Seq)            ; sequencer per named slot
+   pans            (Array Float)          ; pan per named slot
+   sfx-pool        (Array Channel)        ; fire-and-forget sfx pool
+   sfx-pans        (Array Float)          ; pan per sfx pool slot
+   sfx-next        Int                    ; next sfx slot index
+   master-vol      Float                  ; master output gain (0.0-1.0)
+   sample-players  (Array SamplePlayer)   ; WAV sample player pool
+   sample-pans     (Array Float)          ; pan per sample player
+   stereo          (Array Float)])        ; interleaved stereo output
+
+(defmodule Mixer
+
+  ; make a mixer with n named voice slots, all starting silent.
+  ; configure slots with set-channel!/set-seq!/set-pan! before use.
+  (defn make [n]
+    (let-do [channels  (the (Array Channel) [])
+             seqs      (the (Array Seq) [])
+             pans      (the (Array Float) [])
+             sfx       (the (Array Channel) [])
+             sfx-pans  (the (Array Float) [])
+             sps       (the (Array SamplePlayer) [])
+             spans     (the (Array Float) [])]
+      (for [i 0 n]
+        (do
+          (set! channels (Array.push-back channels (Channel.make osc-sine 0 0 0.0f 0 0.0f)))
+          (set! seqs     (Array.push-back seqs     (Seq.make (the (Array Note) []))))
+          (set! pans     (Array.push-back pans     0.0f))))
+      (for [i 0 sfx-pool-size]
+        (do
+          (set! sfx      (Array.push-back sfx      (Channel.make osc-sine 0 0 0.0f 0 0.0f)))
+          (set! sfx-pans (Array.push-back sfx-pans 0.0f))))
+      (for [i 0 sample-pool-size]
+        (do
+          (set! sps   (Array.push-back sps   (SamplePlayer.make (the (Array Float) []))))
+          (set! spans (Array.push-back spans 0.0f))))
+      (Mixer.init channels seqs pans sfx sfx-pans 0 1.0f sps spans (Array.allocate buf-size))))
+
+  ; replace the channel in a named slot
+  (defn set-channel! [mix i ch]
+    (aset! (Mixer.channels mix) i ch))
+
+  ; replace the sequencer in a named slot
+  (defn set-seq! [mix i seq]
+    (aset! (Mixer.seqs mix) i seq))
+
+  ; set pan for a named slot (-1.0 left, 0.0 center, 1.0 right)
+  (defn set-pan! [mix i pan]
+    (aset! (Mixer.pans mix) i pan))
+
+  ; fire a one-shot SFX at a specific pan position (-1.0 left, 0.0 center, 1.0 right).
+  ; ch defines the instrument shape. duration is controlled by the ADSR envelope.
+  ; use presets with sustain=0.0f for clean percussive sounds.
+  (defn sfx-at! [mix freq pan ch]
+    (let-do [slot (mod @(Mixer.sfx-next mix) sfx-pool-size)
+             pool (Mixer.sfx-pool mix)]
+      (aset! pool slot ch)
+      (aset! (Mixer.sfx-pans mix) slot pan)
+      (Channel.play! (Array.unsafe-nth pool slot) freq)
+      ; no release! — for perc/pluck presets (sustain=0) the envelope runs
+      ; attack→decay→sustain(0) and produces audible sound naturally.
+      ; play!+immediate release! captures release-from=0 (level before first tick)
+      ; which produces silence — this avoids that.
+      (Mixer.set-sfx-next! mix (+ @(Mixer.sfx-next mix) 1))))
+
+  ; fire a one-shot SFX at center pan. shorthand for (sfx-at! mix freq 0.0f ch).
+  (defn sfx! [mix freq ch]
+    (sfx-at! mix freq 0.0f ch))
+
+  ; replace a sample player slot with a loaded SamplePlayer
+  (defn set-sample-player! [mix i sp]
+    (aset! (Mixer.sample-players mix) i sp))
+
+  ; set pan for a sample player slot (-1.0 left, 0.0 center, 1.0 right)
+  (defn set-sample-pan! [mix i pan]
+    (aset! (Mixer.sample-pans mix) i pan))
+
+  ; start playback on a sample player slot
+  (defn play-sample! [mix i]
+    (SamplePlayer.play! (Array.unsafe-nth (Mixer.sample-players mix) i)))
+
+  ; stop playback on a sample player slot
+  (defn stop-sample! [mix i]
+    (SamplePlayer.stop! (Array.unsafe-nth (Mixer.sample-players mix) i)))
+
+  ; left gain from pan: full at center and hard-left, fades to 0 at hard-right
+  (defn- pan-l [pan]
+    (if (> pan 0.0f) (- 1.0f pan) 1.0f))
+
+  ; right gain from pan: full at center and hard-right, fades to 0 at hard-left
+  (defn- pan-r [pan]
+    (if (< pan 0.0f) (+ 1.0f pan) 1.0f))
+
+  ; clamp a float to -1..1
+  (defn- clampf [x]
+    (if (> x 1.0f) 1.0f (if (< x -1.0f) -1.0f x)))
+
+  ; tick all voices, sum to stereo output, clamp to prevent distortion.
+  ; named slots: Seq drives Channel each tick.
+  ; SFX pool: Channel ticks freely, envelope runs to done on its own.
+  (defn tick [mix]
+    (let-do [buf (Mixer.stereo mix)
+             n   (Array.length (Mixer.channels mix))]
+      ; zero the output buffer
+      (for [i 0 buf-size] (aset! buf i 0.0f))
+      ; tick and accumulate named channels
+      (for [i 0 n]
+        (let-do [ch  (Array.unsafe-nth (Mixer.channels mix) i)
+                 seq (Array.unsafe-nth (Mixer.seqs mix) i)
+                 pan @(Array.unsafe-nth (Mixer.pans mix) i)
+                 gl  (pan-l pan)
+                 gr  (pan-r pan)]
+          (Seq.tick seq ch)
+          (Channel.tick ch)
+          (for [j 0 buf-frames]
+            (let [s @(Array.unsafe-nth (Channel.buf ch) j)]
+              (do
+                (aset! buf (* j 2)
+                       (+ @(Array.unsafe-nth buf (* j 2)) (* s gl)))
+                (aset! buf (+ (* j 2) 1)
+                       (+ @(Array.unsafe-nth buf (+ (* j 2) 1)) (* s gr))))))))
+      ; tick and accumulate sfx pool with per-slot pan
+      (for [i 0 sfx-pool-size]
+        (let-do [ch  (Array.unsafe-nth (Mixer.sfx-pool mix) i)
+                 pan @(Array.unsafe-nth (Mixer.sfx-pans mix) i)
+                 gl  (pan-l pan)
+                 gr  (pan-r pan)]
+          (Channel.tick ch)
+          (for [j 0 buf-frames]
+            (let [s @(Array.unsafe-nth (Channel.buf ch) j)]
+              (do
+                (aset! buf (* j 2)
+                       (+ @(Array.unsafe-nth buf (* j 2)) (* s gl)))
+                (aset! buf (+ (* j 2) 1)
+                       (+ @(Array.unsafe-nth buf (+ (* j 2) 1)) (* s gr))))))))
+      ; tick and accumulate sample players with per-player pan
+      (for [i 0 sample-pool-size]
+        (let-do [sp  (Array.unsafe-nth (Mixer.sample-players mix) i)
+                 pan @(Array.unsafe-nth (Mixer.sample-pans mix) i)
+                 gl  (pan-l pan)
+                 gr  (pan-r pan)]
+          (SamplePlayer.tick sp)
+          (for [j 0 buf-frames]
+            (let [s @(Array.unsafe-nth (SamplePlayer.buf sp) j)]
+              (do
+                (aset! buf (* j 2)
+                       (+ @(Array.unsafe-nth buf (* j 2)) (* s gl)))
+                (aset! buf (+ (* j 2) 1)
+                       (+ @(Array.unsafe-nth buf (+ (* j 2) 1)) (* s gr))))))))
+      ; apply master volume then clamp to -1..1
+      (let [mv @(Mixer.master-vol mix)]
+        (for [i 0 buf-size]
+          (aset! buf i (clampf (* @(Array.unsafe-nth buf i) mv)))))))
+
+)
+
+; --- Tests ---
+
+(defn mixer-tests []
+  (ignore (with-test state
+    ; make: correct number of named slots
+    (let [mix (Mixer.make 3)]
+      (Test.assert-equal state 3 (Array.length (Mixer.channels &mix))
+        "Mixer.make creates correct channel count"))
+    ; make: sfx-next starts at 0
+    (let [mix (Mixer.make 1)]
+      (Test.assert-equal state 0 @(Mixer.sfx-next &mix)
+        "Mixer.make sfx-next is 0"))
+    ; make: pan defaults to 0.0
+    (let [mix (Mixer.make 1)]
+      (Test.assert-equal state 0.0f @(Array.unsafe-nth (Mixer.pans &mix) 0)
+        "Mixer.make pan defaults to 0.0"))
+    ; set-pan!: stores value
+    (let [mix (Mixer.make 1)]
+      (do
+        (Mixer.set-pan! &mix 0 -0.5f)
+        (Test.assert-equal state -0.5f @(Array.unsafe-nth (Mixer.pans &mix) 0)
+          "set-pan! stores value")))
+    ; sfx!: advances sfx-next
+    (let [mix (Mixer.make 1)
+          ch  (Channel.make osc-square 0 0 0.0f 0 0.5f)]
+      (do
+        (Mixer.sfx! &mix 440.0f ch)
+        (Test.assert-equal state 1 @(Mixer.sfx-next &mix)
+          "sfx! advances sfx-next")))
+    ; tick with all silent channels: stereo buffer is zero
+    (let [mix (Mixer.make 2)]
+      (do
+        (Mixer.tick &mix)
+        (Test.assert-equal state 0.0f @(Array.unsafe-nth (Mixer.stereo &mix) 0)
+          "silent mixer tick gives zero output")))
+    ; tick with active channel, center pan: L equals R
+    (let [mix (Mixer.make 1)
+          ch  (Channel.make osc-square 0 0 1.0f 0 1.0f)]
+      (do
+        (Channel.play! &ch 440.0f)
+        (Mixer.set-channel! &mix 0 ch)
+        (Mixer.tick &mix)
+        (Test.assert-equal state
+          @(Array.unsafe-nth (Mixer.stereo &mix) 0)
+          @(Array.unsafe-nth (Mixer.stereo &mix) 1)
+          "center pan: L equals R")))
+    ; tick with hard-left pan: R is zero
+    (let [mix (Mixer.make 1)
+          ch  (Channel.make osc-square 0 0 1.0f 0 1.0f)]
+      (do
+        (Channel.play! &ch 440.0f)
+        (Mixer.set-channel! &mix 0 ch)
+        (Mixer.set-pan! &mix 0 -1.0f)
+        (Mixer.tick &mix)
+        (Test.assert-equal state 0.0f
+          @(Array.unsafe-nth (Mixer.stereo &mix) 1)
+          "hard-left pan: R is zero")))
+    ; tick with two full-gain channels: output clamped to 1.0
+    (let [mix (Mixer.make 2)
+          c1  (Channel.make osc-square 0 0 1.0f 0 1.0f)
+          c2  (Channel.make osc-square 0 0 1.0f 0 1.0f)]
+      (do
+        (Channel.play! &c1 440.0f)
+        (Channel.play! &c2 440.0f)
+        (Mixer.set-channel! &mix 0 c1)
+        (Mixer.set-channel! &mix 1 c2)
+        (Mixer.tick &mix)
+        (Test.assert-equal state 1.0f
+          @(Array.unsafe-nth (Mixer.stereo &mix) 0)
+          "clamp: sum > 1.0 clamped to 1.0")))
+    ; master-vol defaults to 1.0
+    (let [mix (Mixer.make 1)]
+      (Test.assert-equal state 1.0f @(Mixer.master-vol &mix)
+        "Mixer.make master-vol defaults to 1.0"))
+    ; master-vol 0.0 silences output
+    (let [mix (Mixer.make 1)
+          ch  (Channel.make osc-square 0 0 1.0f 0 1.0f)]
+      (do
+        (Channel.play! &ch 440.0f)
+        (Mixer.set-channel! &mix 0 ch)
+        (Mixer.set-master-vol! &mix 0.0f)
+        (Mixer.tick &mix)
+        (Test.assert-equal state 0.0f
+          @(Array.unsafe-nth (Mixer.stereo &mix) 0)
+          "master-vol 0.0 silences output")))
+    ; sfx-at!: stores pan for the fired slot
+    (let [mix (Mixer.make 1)
+          ch  (Channel.make osc-square 0 0 0.0f 0 0.5f)]
+      (do
+        (Mixer.sfx-at! &mix 440.0f -1.0f ch)
+        (Test.assert-equal state -1.0f
+          @(Array.unsafe-nth (Mixer.sfx-pans &mix) 0)
+          "sfx-at! stores pan for slot")))
+    ; sfx! uses center pan
+    (let [mix (Mixer.make 1)
+          ch  (Channel.make osc-square 0 0 0.0f 0 0.5f)]
+      (do
+        (Mixer.sfx! &mix 440.0f ch)
+        (Test.assert-equal state 0.0f
+          @(Array.unsafe-nth (Mixer.sfx-pans &mix) 0)
+          "sfx! uses center pan"))))))

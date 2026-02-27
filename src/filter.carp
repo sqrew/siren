@@ -1,0 +1,166 @@
+(load "constants.carp")
+
+; filter.carp — biquad low-pass, high-pass, band-pass filter
+; one struct, three factory functions, one tick
+; coefficients from Audio EQ Cookbook by Robert Bristow-Johnson
+; apply with (Filter.fill buf &filt) after oscillator/envelope
+
+(deftype Filter
+  [b0  Float    ; feed-forward coefficients (pre-divided by a0)
+   b1  Float
+   b2  Float
+   a1  Float    ; feed-back coefficients (pre-divided by a0)
+   a2  Float
+   x1  Float    ; delay: x[n-1]
+   x2  Float    ; delay: x[n-2]
+   y1  Float    ; delay: y[n-1]
+   y2  Float])  ; delay: y[n-2]
+
+(defmodule Filter
+
+  ; internal: angular frequency for a given cutoff in hz
+  (defn- w0-for [freq-hz]
+    (* two-pi (/ freq-hz (Float.from-int sample-rate))))
+
+  ; low-pass — passes below cutoff, attenuates above
+  ; q: resonance — 0.707 = maximally flat (Butterworth), >1.0 = resonant peak
+  (defn make-lp [freq-hz q]
+    (let [w0    (w0-for freq-hz)
+          cosw0 (Float.cos w0)
+          alpha (/ (Float.sin w0) (* 2.0f q))
+          a0    (+ 1.0f alpha)
+          b1r   (- 1.0f cosw0)
+          b0    (/ (/ b1r 2.0f) a0)
+          b1    (/ b1r a0)
+          b2    (/ (/ b1r 2.0f) a0)
+          a1    (/ (- 0.0f (* 2.0f cosw0)) a0)
+          a2    (/ (- 1.0f alpha) a0)]
+      (Filter.init b0 b1 b2 a1 a2 0.0f 0.0f 0.0f 0.0f)))
+
+  ; high-pass — passes above cutoff, attenuates below
+  ; q: resonance — same meaning as low-pass
+  (defn make-hp [freq-hz q]
+    (let [w0    (w0-for freq-hz)
+          cosw0 (Float.cos w0)
+          alpha (/ (Float.sin w0) (* 2.0f q))
+          a0    (+ 1.0f alpha)
+          b1r   (+ 1.0f cosw0)
+          b0    (/ (/ b1r 2.0f) a0)
+          b1    (/ (- 0.0f b1r) a0)
+          b2    (/ (/ b1r 2.0f) a0)
+          a1    (/ (- 0.0f (* 2.0f cosw0)) a0)
+          a2    (/ (- 1.0f alpha) a0)]
+      (Filter.init b0 b1 b2 a1 a2 0.0f 0.0f 0.0f 0.0f)))
+
+  ; band-pass — passes a band around cutoff, attenuates outside
+  ; q: bandwidth — higher q = narrower band
+  (defn make-bp [freq-hz q]
+    (let [w0    (w0-for freq-hz)
+          sinw0 (Float.sin w0)
+          cosw0 (Float.cos w0)
+          alpha (/ sinw0 (* 2.0f q))
+          a0    (+ 1.0f alpha)
+          b0    (/ (* sinw0 0.5f) a0)
+          b1    0.0f
+          b2    (/ (- 0.0f (* sinw0 0.5f)) a0)
+          a1    (/ (- 0.0f (* 2.0f cosw0)) a0)
+          a2    (/ (- 1.0f alpha) a0)]
+      (Filter.init b0 b1 b2 a1 a2 0.0f 0.0f 0.0f 0.0f)))
+
+  ; direct form I biquad: y[n] = b0*x[n] + b1*x[n-1] + b2*x[n-2]
+  ;                              - a1*y[n-1] - a2*y[n-2]
+  ; coefficients are pre-divided by a0 in the factory functions so
+  ; this tick doesn't need to divide on every sample.
+  (defn tick [filt x]
+    (let-do [x1   @(Filter.x1 filt)
+             x2   @(Filter.x2 filt)
+             y1   @(Filter.y1 filt)
+             y2   @(Filter.y2 filt)
+             b0x  (* @(Filter.b0 filt) x)
+             b1x1 (* @(Filter.b1 filt) x1)
+             b2x2 (* @(Filter.b2 filt) x2)
+             a1y1 (* @(Filter.a1 filt) y1)
+             a2y2 (* @(Filter.a2 filt) y2)
+             y    (- (+ b0x (+ b1x1 b2x2)) (+ a1y1 a2y2))]
+      (Filter.set-x2! filt x1)
+      (Filter.set-x1! filt x)
+      (Filter.set-y2! filt y1)
+      (Filter.set-y1! filt y)
+      y))
+
+  ; apply filter in-place to a mono buffer
+  (defn fill [buf filt]
+    (for [i 0 buf-frames]
+      (aset! buf i (tick filt @(Array.unsafe-nth buf i)))))
+
+)
+
+; --- Tests ---
+
+(defn filter-tests []
+  (ignore (with-test state
+    ; LP symmetry: b0 = b2
+    (let [f (Filter.make-lp 1000.0f 0.707f)]
+      (Test.assert-true state
+        (Float.approx @(Filter.b0 &f) @(Filter.b2 &f))
+        "LP b0 equals b2"))
+    ; LP: b1 = 2*b0
+    (let [f (Filter.make-lp 1000.0f 0.707f)]
+      (Test.assert-true state
+        (Float.approx @(Filter.b1 &f) (* 2.0f @(Filter.b0 &f)))
+        "LP b1 is 2*b0"))
+    ; HP symmetry: b0 = b2
+    (let [f (Filter.make-hp 1000.0f 0.707f)]
+      (Test.assert-true state
+        (Float.approx @(Filter.b0 &f) @(Filter.b2 &f))
+        "HP b0 equals b2"))
+    ; HP: b1 is negative
+    (let [f (Filter.make-hp 1000.0f 0.707f)]
+      (Test.assert-true state
+        (< @(Filter.b1 &f) 0.0f)
+        "HP b1 is negative"))
+    ; BP: b1 is exactly zero by construction
+    (let [f (Filter.make-bp 1000.0f 1.0f)]
+      (Test.assert-equal state 0.0f @(Filter.b1 &f)
+        "BP b1 is zero"))
+    ; BP: b0 = -b2
+    (let [f (Filter.make-bp 1000.0f 1.0f)]
+      (Test.assert-true state
+        (Float.approx @(Filter.b0 &f) (- 0.0f @(Filter.b2 &f)))
+        "BP b0 equals neg b2"))
+    ; delay lines all init to zero
+    (let [f (Filter.make-lp 1000.0f 0.707f)]
+      (Test.assert-equal state 0.0f @(Filter.x1 &f) "delay x1 init zero"))
+    (let [f (Filter.make-lp 1000.0f 0.707f)]
+      (Test.assert-equal state 0.0f @(Filter.x2 &f) "delay x2 init zero"))
+    (let [f (Filter.make-lp 1000.0f 0.707f)]
+      (Test.assert-equal state 0.0f @(Filter.y1 &f) "delay y1 init zero"))
+    (let [f (Filter.make-lp 1000.0f 0.707f)]
+      (Test.assert-equal state 0.0f @(Filter.y2 &f) "delay y2 init zero"))
+    ; zero input on fresh filter gives zero output
+    (let [f (Filter.make-lp 1000.0f 0.707f)]
+      (Test.assert-equal state 0.0f (Filter.tick &f 0.0f)
+        "tick zero in gives zero out"))
+    ; tick stores last input in x1
+    (let [f (Filter.make-lp 1000.0f 0.707f)]
+      (do
+        (ignore (Filter.tick &f 1.0f))
+        (Test.assert-equal state 1.0f @(Filter.x1 &f)
+          "tick updates x1")))
+    ; Filter.fill zero input stays zero
+    (let [buf (the (Array Float) (Array.allocate buf-frames))
+          f   (Filter.make-lp 1000.0f 0.707f)]
+      (do
+        (for [i 0 buf-frames] (aset! &buf i 0.0f))
+        (Filter.fill &buf &f)
+        (Test.assert-equal state 0.0f @(Array.unsafe-nth &buf 0)
+          "Filter.fill zero input stays zero")))
+    ; Filter.fill attenuates input — LP 1kHz first sample < input
+    ; first output = b0 * input (all delay state zero), b0 << 1 for 1kHz LP
+    (let [buf (the (Array Float) (Array.allocate buf-frames))
+          f   (Filter.make-lp 1000.0f 0.707f)]
+      (do
+        (for [i 0 buf-frames] (aset! &buf i 1.0f))
+        (Filter.fill &buf &f)
+        (Test.assert-true state (< @(Array.unsafe-nth &buf 0) 1.0f)
+          "Filter.fill LP attenuates first sample"))))))

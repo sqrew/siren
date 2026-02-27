@@ -1,20 +1,29 @@
+(load "constants.carp")
+
 ; oscillators.carp — signal generation
 ; all oscillators produce MONO f32 buffers
 ; uniform API: (Osc.fill-X buf freq phase) → next-phase
 ; buf is (Ref (Array Float)), length = buf-frames
+;
+; phase is passed in (not stored in the oscillator) so that the caller
+; owns the state — oscillators are pure functions with no hidden mutation.
+; the returned next-phase is the phase at the END of this buffer; feed it
+; back into the next call to keep the waveform continuous across buffers.
+; without this, every buffer would restart at phase 0, producing a click
+; at every buffer boundary.
 
 (defmodule Osc
 
   ; sine — classic, band-limited by nature
   (defn fill-sine [buf freq phase]
-    (let-do [step (* two-pi (/ (Float.from-int freq) (Float.from-int sample-rate)))]
+    (let-do [step (* two-pi (/ freq (Float.from-int sample-rate)))]
       (for [i 0 buf-frames]
         (aset! buf i (Float.sin (+ phase (* step (Float.from-int i))))))
       (mod (+ phase (* step (Float.from-int buf-frames))) two-pi)))
 
   ; square — naive, aliased. good for chiptune
   (defn fill-square [buf freq phase]
-    (let-do [step (* two-pi (/ (Float.from-int freq) (Float.from-int sample-rate)))]
+    (let-do [step (* two-pi (/ freq (Float.from-int sample-rate)))]
       (for [i 0 buf-frames]
         (let [p (mod (+ phase (* step (Float.from-int i))) two-pi)]
           (aset! buf i (if (< p Float.pi) 1.0f -1.0f))))
@@ -22,7 +31,7 @@
 
   ; saw — naive, aliased. good for chiptune
   (defn fill-saw [buf freq phase]
-    (let-do [step (* two-pi (/ (Float.from-int freq) (Float.from-int sample-rate)))]
+    (let-do [step (* two-pi (/ freq (Float.from-int sample-rate)))]
       (for [i 0 buf-frames]
         (let [p (mod (+ phase (* step (Float.from-int i))) two-pi)]
           (aset! buf i (- (* (/ p Float.pi) 1.0f) 1.0f))))
@@ -30,7 +39,7 @@
 
   ; triangle — derived from saw, band-limited-ish
   (defn fill-triangle [buf freq phase]
-    (let-do [step (* two-pi (/ (Float.from-int freq) (Float.from-int sample-rate)))]
+    (let-do [step (* two-pi (/ freq (Float.from-int sample-rate)))]
       (for [i 0 buf-frames]
         (let [p  (mod (+ phase (* step (Float.from-int i))) two-pi)
               s  (/ p Float.pi)          ; 0..2
@@ -42,7 +51,59 @@
   (defn fill-noise [buf freq phase]
     (do
       (for [i 0 buf-frames]
-        (aset! buf i (- (* (Float.from-int (mod (random) 65536)) 0.0000305185f) 1.0f)))
+        ; mod to 65536, scale by 1/32768 → [0, 2), subtract 1 → [-1, 1)
+        (aset! buf i (- (* (Float.from-int (mod (random) 65536)) (/ 1.0f 32768.0f)) 1.0f)))
       phase))
 
 )
+
+; --- Tests ---
+
+(defn oscillator-tests []
+  (ignore (with-test state
+    ; sine at phase 0.0: sin(0) = 0.0
+    (let [buf (the (Array Float) (Array.allocate buf-frames))]
+      (do
+        (ignore (Osc.fill-sine &buf 440.0f 0.0f))
+        (Test.assert-true state (Float.approx @(Array.unsafe-nth &buf 0) 0.0f)
+          "sine phase=0 sample[0] is 0.0")))
+    ; sine at phase pi/2: sin(pi/2) = 1.0
+    (let [buf (the (Array Float) (Array.allocate buf-frames))]
+      (do
+        (ignore (Osc.fill-sine &buf 440.0f (/ Float.pi 2.0f)))
+        (Test.assert-true state (Float.approx @(Array.unsafe-nth &buf 0) 1.0f)
+          "sine phase=pi/2 sample[0] is 1.0")))
+    ; square at phase 0.0: p < pi → 1.0
+    (let [buf (the (Array Float) (Array.allocate buf-frames))]
+      (do
+        (ignore (Osc.fill-square &buf 440.0f 0.0f))
+        (Test.assert-equal state 1.0f @(Array.unsafe-nth &buf 0)
+          "square phase=0 sample[0] is 1.0")))
+    ; square at phase pi+0.1: p >= pi → -1.0
+    (let [buf (the (Array Float) (Array.allocate buf-frames))]
+      (do
+        (ignore (Osc.fill-square &buf 440.0f (+ Float.pi 0.1f)))
+        (Test.assert-equal state -1.0f @(Array.unsafe-nth &buf 0)
+          "square phase=pi+0.1 sample[0] is -1.0")))
+    ; saw at phase 0.0: (0/pi)*1 - 1 = -1.0
+    (let [buf (the (Array Float) (Array.allocate buf-frames))]
+      (do
+        (ignore (Osc.fill-saw &buf 440.0f 0.0f))
+        (Test.assert-true state (Float.approx @(Array.unsafe-nth &buf 0) -1.0f)
+          "saw phase=0 sample[0] is -1.0")))
+    ; triangle at phase 0.0: s=0, s2=0, 2*0-1 = -1.0
+    (let [buf (the (Array Float) (Array.allocate buf-frames))]
+      (do
+        (ignore (Osc.fill-triangle &buf 440.0f 0.0f))
+        (Test.assert-true state (Float.approx @(Array.unsafe-nth &buf 0) -1.0f)
+          "triangle phase=0 sample[0] is -1.0")))
+    ; triangle at phase pi: s=1, s2=1, 2*1-1 = 1.0
+    (let [buf (the (Array Float) (Array.allocate buf-frames))]
+      (do
+        (ignore (Osc.fill-triangle &buf 440.0f Float.pi))
+        (Test.assert-true state (Float.approx @(Array.unsafe-nth &buf 0) 1.0f)
+          "triangle phase=pi sample[0] is 1.0")))
+    ; noise returns phase unchanged
+    (let [buf (the (Array Float) (Array.allocate buf-frames))]
+      (Test.assert-equal state 1.5f (Osc.fill-noise &buf 440.0f 1.5f)
+        "noise returns phase unchanged")))))

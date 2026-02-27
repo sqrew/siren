@@ -8,3 +8,8 @@
 (def buf-bytes    (* buf-size 4))           ; bytes per buffer (f32 = 4 bytes)
 (def queue-target (* buf-bytes 4))          ; keep 4 buffers queued ahead
 (def two-pi       (* 2.0f Float.pi))
+
+; convert milliseconds to samples at the engine sample rate
+(defn ms-to-samps [ms]
+  (Float.to-int (* (Float.from-int ms)
+                   (/ (Float.from-int sample-rate) 1000.0f))))

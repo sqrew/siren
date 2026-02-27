@@ -1,0 +1,74 @@
+(load "constants.carp")
+
+; lfo.carp — low-frequency oscillator for modulation
+; produces a slow oscillating control signal applied per buffer tick.
+; resolution is one value per buffer (~86 updates/sec at 44100/512) —
+; sufficient for typical lfo rates (2-8hz). the stepping is intentional
+; and period-accurate to classic chiptune hardware.
+;
+; two targets, enabled via Channel:
+;   lfo-freq — pitch vibrato: adds mod hz to Channel.freq each tick
+;   lfo-amp  — tremolo: scales post-envelope amplitude by (1 + mod)
+;
+; enable:  (Channel.set-lfo-freq! &ch rate-hz depth-hz)
+;          (Channel.set-lfo-amp!  &ch rate-hz depth-0..1)
+; disable: (Channel.clear-lfo! &ch)
+
+(def lfo-off  0)
+(def lfo-freq 1)
+(def lfo-amp  2)
+
+(deftype Lfo
+  [rate   Float   ; oscillation rate in hz
+   depth  Float   ; depth: hz deviation for lfo-freq, 0..1 scale for lfo-amp
+   phase  Float]) ; current phase state
+
+(defmodule Lfo
+
+  (defn make [rate depth]
+    (Lfo.init rate depth 0.0f))
+
+  ; advance phase by one buffer's worth, return modulation value at current phase.
+  ; value is in [-depth, +depth] following a sine curve.
+  (defn tick [lfo]
+    (let-do [phase @(Lfo.phase lfo)
+             rate  @(Lfo.rate lfo)
+             depth @(Lfo.depth lfo)
+             step  (* two-pi (/ (* rate (Float.from-int buf-frames))
+                                (Float.from-int sample-rate)))
+             val   (* depth (Float.sin phase))]
+      (Lfo.set-phase! lfo (mod (+ phase step) two-pi))
+      val))
+
+)
+
+; --- Tests ---
+
+(defn lfo-tests []
+  (ignore (with-test state
+    ; make: rate stored
+    (let [l (Lfo.make 5.0f 10.0f)]
+      (Test.assert-equal state 5.0f @(Lfo.rate &l) "Lfo.make stores rate"))
+    ; make: depth stored
+    (let [l (Lfo.make 5.0f 10.0f)]
+      (Test.assert-equal state 10.0f @(Lfo.depth &l) "Lfo.make stores depth"))
+    ; make: phase starts at 0
+    (let [l (Lfo.make 5.0f 10.0f)]
+      (Test.assert-equal state 0.0f @(Lfo.phase &l) "Lfo.make phase is 0"))
+    ; tick at phase=0: sin(0)=0, val=depth*0=0
+    (let [l (Lfo.make 5.0f 10.0f)]
+      (Test.assert-true state (Float.approx (Lfo.tick &l) 0.0f)
+        "tick at phase=0 returns 0"))
+    ; tick advances phase
+    (let [l (Lfo.make 5.0f 10.0f)]
+      (do
+        (ignore (Lfo.tick &l))
+        (Test.assert-true state (> @(Lfo.phase &l) 0.0f)
+          "tick advances phase")))
+    ; zero depth always returns 0 regardless of phase
+    (let [l (Lfo.make 5.0f 0.0f)]
+      (do
+        (ignore (Lfo.tick &l))
+        (ignore (Lfo.tick &l))
+        (Test.assert-true state (Float.approx (Lfo.tick &l) 0.0f)
+          "zero depth tick returns 0"))))))

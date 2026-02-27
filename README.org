@@ -7,15 +7,18 @@
 (load "siren.carp")
 
 (defn main []
-  (let-do [ch  (pluck-square 0.4f)
-           seq (Seq.make [(note note-c4 200)
-                          (note note-e4 200)
-                          (note note-g4 400)])]
+  (let-do [mix (Mixer.make 2)]
+    (Mixer.set-channel! &mix 0 (lead-triangle 0.5f))
+    (Mixer.set-seq!     &mix 0 (Seq.make [(note note-c4 200)
+                                          (note note-e4 200)
+                                          (note note-g4 400)]))
+    (Mixer.set-channel! &mix 1 (bass-saw 0.4f))
+    (Mixer.set-seq!     &mix 1 (Seq.make [(note note-c3 800)]))
     (Siren.init)
-    (Siren.run &ch &seq)))
+    (Siren.run &mix)))
 #+END_SRC
 
-That's it. Define an instrument, define a melody, play it. Anywhere.
+That's it. Define instruments, define melodies, play them together. Anywhere.
 
 * What It Is
 
@@ -39,18 +42,14 @@ Most audio engines are either:
 
 Siren is none of those. It's a library. You own it completely.
 
-It was built as part of an effort to prove that [[https://github.com/carp-lang/Carp][Carp]] — a compiled Lisp with
-no GC and a borrow checker — is a serious general purpose systems language.
-Siren is the proof of concept. It works.
-
-It was built as part of an ongoing effort to make Carp viable as a general
+It was built as part of an ongoing effort to make [[https://github.com/carp-lang/Carp][Carp]] viable as a general
 purpose systems language — proving that a compiled Lisp with no GC can power
 real audio DSP cleanly and ergonomically.
 
 * The Pipeline
 
 #+BEGIN_SRC
-Sequencer → Oscillator → Envelope → [Filters] → [Effects] → Mixer → SDL2 → PCM out
+Sequencer → Oscillator → Envelope → [Filters] → Mixer → SDL2 → PCM out
 #+END_SRC
 
 Every stage is a pure transform on f32 arrays. Data flows one direction.
@@ -60,13 +59,13 @@ Ownership is linear. Nothing is shared between stages.
 
 - *5 oscillators* — sine, square, saw, triangle, noise
 - *ADSR envelopes* — full state machine, retrigger-safe
+- *Biquad filters* — low-pass, high-pass, band-pass per channel
 - *Step sequencer* — note arrays with rests, loops continuously
+- *Polyphonic mixer* — N named voices + stereo pan + output clamp
+- *Fire-and-forget SFX* — ~(Mixer.sfx! &mix freq instrument)~, no slot management
 - *Preset instruments* — ~(pluck-square 0.4f)~, ~(pad-sine 0.3f)~, ~(bass-saw 0.5f)~
 - *88 named notes* — ~note-c4~ through ~note-b7~, all piano keys
 - *One-line startup* — ~Siren.run~ owns the engine loop
-
-Coming: filters (biquad LP/HP/BP), effects (delay, reverb, chorus),
-LFO, multi-channel mixer.
 
 * Dependencies
 
@@ -81,9 +80,9 @@ library — without touching anything else. The abstraction is already there.
 
 * Status
 
-Early but functional. Real music plays. The architecture is proven.
-Not production-hardened — this is a research project and a love letter
-to a language that deserves more users.
+Functional and tested. 72 tests, all passing. Real polyphonic music plays.
+The architecture is proven. Not production-hardened — this is a research
+project and a love letter to a language that deserves more users.
 
 * Built With
 
