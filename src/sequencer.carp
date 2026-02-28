@@ -18,15 +18,16 @@
    cursor      Int            ; current note index
    pos-samps   Int            ; samples into current note
    dur-samps   Int            ; total samples for current note
-   note-active Bool])         ; has note-on been fired for this step
+   note-active Bool           ; has note-on been fired for this step
+   speed       Float])        ; playback speed multiplier (1.0 = normal)
 
 (defmodule Seq
 
   (defn make [notes]
     (if (= (Array.length &notes) 0)
-      (Seq.init [] 0 0 0 false)
+      (Seq.init [] 0 0 0 false 1.0f)
       (let [first-dur (Note.dur-ms (Array.unsafe-nth &notes 0))]
-        (Seq.init notes 0 0 (ms-to-samps @first-dur) false))))
+        (Seq.init notes 0 0 (ms-to-samps @first-dur) false 1.0f))))
 
   ; advance sequencer by one buffer, fire channel events as needed.
   ; sequence of operations per call:
@@ -50,8 +51,8 @@
           (do
             (Channel.play! ch freq)
             (Seq.set-note-active! seq true)))
-        ; advance position by one buffer
-        (Seq.set-pos-samps! seq (+ pos buf-frames))
+        ; advance position by one buffer, scaled by speed
+        (Seq.set-pos-samps! seq (+ pos (Float.to-int (* (Float.from-int buf-frames) @(Seq.speed seq)))))
         ; drain all elapsed notes — handles notes shorter than buf-frames
         ; carries over excess position so timing stays accurate
         (while (>= @(Seq.pos-samps seq) @(Seq.dur-samps seq))

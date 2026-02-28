@@ -106,7 +106,7 @@
            ; Mixer.make allocates channels, sequencers, pans, the SFX pool
            ; (4 round-robin channels), and the sample player pool (4 slots).
            ; everything starts silent — we configure each slot below.
-           mix (Mixer.make 3)]
+           mix (Mixer.make 3 4)]
 
     ; --- slot 0: melody (lead-triangle) ---
     ; lead-triangle: triangle oscillator, medium attack (20ms), high sustain
@@ -208,7 +208,7 @@
 ; Siren.run — it blocks forever. instead, call Siren.tick each frame:
 ;
 ; (defn game-main []
-;   (let-do [mix (Mixer.make 3)
+;   (let-do [mix (Mixer.make 3 4)
 ;            _   (Siren.init)
 ;            dev (Siren.open)]
 ;     ; ... configure channels, seqs, etc. same as above ...

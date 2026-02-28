@@ -2,6 +2,13 @@
 ; for embedding in a game: call Siren.init, Siren.open, then Siren.tick
 ; each frame. for standalone programs: call Siren.run (blocks forever).
 (load-and-use SDL)
+
+; when loaded as a library, Test.carp is not available.
+; stub with-test so test functions in src files compile to dead code.
+; when running tests via test/run.carp, Test.carp loads first and its
+; with-test takes precedence — this stub is never seen.
+(defmacro with-test [name :rest forms] (list 'ignore 0))
+
 (load "constants.carp")
 (load "notes.carp")
 (load "SDLAudio.carp")
